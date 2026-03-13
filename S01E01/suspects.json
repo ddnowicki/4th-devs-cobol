@@ -1,0 +1,49 @@
+[
+  {
+    "name": "Cezary",
+    "surname": "Żurek",
+    "gender": "M",
+    "birthYear": 1987,
+    "birthDate": "1987-08-07",
+    "birthPlace": "Grudziądz",
+    "tags": [
+      "transport",
+      "praca z pojazdami"
+    ]
+  },
+  {
+    "name": "Jacek",
+    "surname": "Nowak",
+    "gender": "M",
+    "birthYear": 1991,
+    "birthDate": "1991-11-23",
+    "birthPlace": "Grudziądz",
+    "tags": [
+      "transport",
+      "praca z ludźmi"
+    ]
+  },
+  {
+    "name": "Wojciech",
+    "surname": "Bielik",
+    "gender": "M",
+    "birthYear": 1986,
+    "birthDate": "1986-06-24",
+    "birthPlace": "Grudziądz",
+    "tags": [
+      "transport",
+      "praca z ludźmi"
+    ]
+  },
+  {
+    "name": "Wacław",
+    "surname": "Jasiński",
+    "gender": "M",
+    "birthYear": 1986,
+    "birthDate": "1986-03-01",
+    "birthPlace": "Grudziądz",
+    "tags": [
+      "transport"
+    ]
+  }
+]

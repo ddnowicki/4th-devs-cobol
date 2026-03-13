@@ -1,0 +1,261 @@
+name: COBOL Tasks
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  s01e01:
+    name: S01E01 - People
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+          echo "::add-mask::${{ secrets.AZYL_HOST }}"
+
+      - name: Compile
+        working-directory: S01E01
+        run: cobc -x -o app app.cob
+
+      - name: Run
+        working-directory: S01E01
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+        run: |
+          set +e
+          OUTPUT=$(./app 2>&1)
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
+
+  s01e02:
+    name: S01E02 - FindHim
+    needs: s01e01
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+          echo "::add-mask::${{ secrets.AZYL_HOST }}"
+
+      - name: Compile
+        working-directory: S01E02
+        run: cobc -x -o app app.cob
+
+      - name: Run
+        working-directory: S01E02
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+        run: |
+          set +e
+          OUTPUT=$(./app 2>&1)
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
+
+  s01e03:
+    name: S01E03 - Proxy
+    needs: s01e02
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+          echo "::add-mask::${{ secrets.AZYL_HOST }}"
+          echo "::add-mask::${{ secrets.AZYL_USER }}"
+          echo "::add-mask::${{ secrets.AZYL_APP_PORT }}"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZYL_SSH_KEY }}" > ~/.ssh/azyl_key
+          chmod 600 ~/.ssh/azyl_key
+          cat >> ~/.ssh/config <<EOF
+          Host azyl
+            HostName ${{ secrets.AZYL_HOST }}
+            Port ${{ secrets.AZYL_PORT }}
+            User ${{ secrets.AZYL_USER }}
+            IdentityFile ~/.ssh/azyl_key
+            StrictHostKeyChecking no
+          EOF
+
+      - name: Clean old deployment
+        run: |
+          ssh azyl "pgrep -f '[a]pp-native' | xargs -r kill 2>/dev/null || true; podman stop cobol-proxy 2>/dev/null || true; podman rm cobol-proxy 2>/dev/null || true; podman rmi cobol-proxy 2>/dev/null || true; podman system prune -af 2>/dev/null || true; rm -rf ~/cobol-deploy"
+
+      - name: Deploy source to azyl
+        run: |
+          ssh azyl "mkdir -p ~/cobol-deploy"
+          scp S01E03/app.cob S01E03/Containerfile S01E03/start.sh azyl:~/cobol-deploy/
+
+      - name: Build container on azyl
+        run: |
+          ssh azyl "mkdir -p ~/tmp && cd ~/cobol-deploy && TMPDIR=~/tmp podman build -t cobol-proxy -f Containerfile ."
+
+      - name: Extract binary from container
+        run: |
+          ssh azyl "podman create --name cobol-extract cobol-proxy && podman cp cobol-extract:/app/app ~/cobol-deploy/app-native && podman rm cobol-extract"
+
+      - name: Start server natively
+        run: |
+          ssh azyl "cd ~/cobol-deploy && export LD_LIBRARY_PATH=/home/a/${{ secrets.AZYL_USER }}/local/usr/lib/x86_64-linux-gnu && export COB_CONFIG_DIR=/home/a/${{ secrets.AZYL_USER }}/local/etc/gnucobol && export OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' && export HUB_API_KEY='${{ secrets.HUB_API_KEY }}' && export HUB_API_URL='${{ secrets.HUB_API_URL }}' && export OPENAI_API_URL='${{ secrets.OPENAI_API_URL }}' && export PORT='${{ secrets.AZYL_APP_PORT }}' && mkdir -p /tmp/sessions && rm -f server.log && nohup ./app-native > server.log 2>&1 &"
+          sleep 3
+
+      - name: Verify server is running
+        run: |
+          ssh azyl "curl -s http://localhost:${{ secrets.AZYL_APP_PORT }}/ && echo ''"
+
+      - name: Submit to hub for verification
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          AZYL_APP_PORT: ${{ secrets.AZYL_APP_PORT }}
+        run: |
+          SERVER_URL="https://azyl-${AZYL_APP_PORT}.REDACTED/"
+          PAYLOAD="{\"apikey\":\"${HUB_API_KEY}\",\"task\":\"proxy\",\"answer\":{\"url\":\"${SERVER_URL}\",\"sessionID\":\"ci-session-01\"}}"
+          echo "Submitting verification request..."
+          RESPONSE=$(curl -s -X POST "${HUB_API_URL}/verify" -H "Content-Type: application/json" -d "$PAYLOAD")
+          echo "$RESPONSE" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g'
+
+      - name: Wait for hub to test server
+        run: sleep 60
+
+      - name: Check server logs
+        run: |
+          set +e
+          LOGS=$(ssh azyl "cat ~/cobol-deploy/server.log 2>/dev/null")
+          MASKED=$(echo "$LOGS" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$LOGS" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          ssh azyl "pgrep -f '[a]pp-native' | xargs -r kill 2>/dev/null || true; podman rmi cobol-proxy 2>/dev/null || true; podman system prune -af 2>/dev/null || true; rm -rf ~/cobol-deploy"
+          echo "Cleanup done"
+
+  s01e04:
+    name: S01E04 - SendIt
+    needs: s01e03
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+          echo "::add-mask::${{ secrets.AZYL_HOST }}"
+
+      - name: Compile
+        working-directory: S01E04
+        run: cobc -x -o app app.cob
+
+      - name: Run
+        working-directory: S01E04
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+        run: |
+          set +e
+          OUTPUT=$(./app 2>&1)
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
+
+  s01e05:
+    name: S01E05 - Railway
+    needs: s01e04
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.AZYL_HOST }}"
+
+      - name: Compile
+        working-directory: S01E05
+        run: cobc -x -o app app.cob
+
+      - name: Run
+        working-directory: S01E05
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+        run: |
+          set +e
+          OUTPUT=$(./app 2>&1)
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
