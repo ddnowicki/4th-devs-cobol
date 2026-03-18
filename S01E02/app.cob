@@ -1,7 +1,12 @@
        IDENTIFICATION DIVISION.
        PROGRAM-ID. S01E02-FINDHIM.
       *> ============================================================
-      *> S01E02 - Pure COBOL
+      *> S01E02 - Stable AI Agent with 5 Tools
+      *> Deterministic matching: COBOL does all haversine work.
+      *> LLM only drives flow via function calling (5 roundtrips).
+      *> Tools: get_suspects, get_power_plants,
+      *>   get_closest_suspect_to_plant, get_access_level,
+      *>   submit_answer
       *> ============================================================
 
        ENVIRONMENT DIVISION.
@@ -21,7 +26,7 @@
        DATA DIVISION.
        FILE SECTION.
        FD  WORK-FILE.
-       01  WORK-REC                PIC X(4000).
+       01  WORK-REC                PIC X(64000).
 
        FD  REQ-BODY-FILE.
        01  REQ-BODY-REC            PIC X(4000).
@@ -29,22 +34,30 @@
        WORKING-STORAGE SECTION.
       *> -- Config --
        01  WS-HUB-KEY              PIC X(50).
+       01  WS-OPENAI-KEY           PIC X(200).
        01  WS-QT                   PIC X(1) VALUE '"'.
        01  WS-FS                   PIC XX.
-       01  WS-WORK-PATH            PIC X(100) VALUE "work.tmp".
+       01  WS-WORK-PATH            PIC X(100)
+                                   VALUE "work.tmp".
 
       *> -- URLs --
        01  WS-HUB-URL              PIC X(100).
+       01  WS-OPENAI-URL           PIC X(200).
        01  WS-VERIFY-URL           PIC X(200).
        01  WS-LOCATION-URL         PIC X(200).
        01  WS-ACCESS-URL           PIC X(200).
+
+      *> -- JSON newline: backslash + n --
+       01  WS-NL                   PIC X(2).
+
+      *> -- STRING pointer --
+       01  WS-PTR                  PIC 9(5).
 
       *> -- Large JSON buffer (read whole file) --
        01  WS-JBUF                 PIC X(32000).
        01  WS-JLEN                 PIC 9(5).
        01  WS-JPOS                 PIC 9(5).
        01  WS-JVAL                 PIC X(500).
-       01  WS-JNUM                 PIC X(20).
 
       *> -- Suspects (max 20) --
        01  WS-SUSP-CT              PIC 9(2) VALUE 0.
@@ -63,16 +76,6 @@
               10 WS-PL-LAT         PIC S9(3)V9(6).
               10 WS-PL-LON         PIC S9(3)V9(6).
 
-      *> -- Best match --
-       01  WS-B-NAME               PIC X(50).
-       01  WS-B-SURNAME            PIC X(50).
-       01  WS-B-BYEAR              PIC 9(4).
-       01  WS-B-PCODE              PIC X(20).
-       01  WS-B-PCITY              PIC X(50).
-       01  WS-B-DIST               PIC 9(5)V9(2) VALUE 99999.
-       01  WS-B-FOUND              PIC X VALUE "N".
-       01  WS-B-ACCESS             PIC 9(4) VALUE 0.
-
       *> -- Haversine --
        01  WS-PI-V                 PIC S9(1)V9(10)
                                    VALUE 3.1415926536.
@@ -90,9 +93,8 @@
        01  WS-H-COS1              PIC S9(3)V9(10).
        01  WS-H-COS2              PIC S9(3)V9(10).
 
-      *> -- Geocoding Polish char variants --
+      *> -- Geocoding --
        01  WS-GEO-CITY             PIC X(100).
-       01  WS-GEO-ALT              PIC X(100).
        01  WS-GEO-OK               PIC X VALUE "N".
 
       *> -- JSON parsing temps --
@@ -102,60 +104,139 @@
        01  WS-VAL-END              PIC 9(5).
        01  WS-SCAN-POS             PIC 9(5).
        01  WS-BRACKET-DEPTH        PIC 9(2).
-       01  WS-CH                   PIC X.
-       01  WS-IN-STRING            PIC X VALUE "N".
        01  WS-ARR-START            PIC 9(5).
        01  WS-ARR-END              PIC 9(5).
        01  WS-OBJ-START            PIC 9(5).
        01  WS-OBJ-END              PIC 9(5).
        01  WS-OBJ-BUF              PIC X(2000).
 
-      *> -- FIND-JSON-VAL internal scan pos (avoid clobbering) --
+      *> -- FIND-JSON-VAL internal scan pos --
        01  WS-FJV-POS              PIC 9(5).
+
+      *> -- JSON escape input/output --
+       01  WS-ESC-IN               PIC X(4000).
+       01  WS-ESC-OUT              PIC X(8000).
+       01  WS-ESC-ILEN             PIC 9(5).
+       01  WS-ESC-OLEN             PIC 9(5).
+       01  WS-ESC-I                PIC 9(5).
 
       *> -- Loop/misc --
        01  WS-I                    PIC 9(2).
        01  WS-J                    PIC 9(2).
-       01  WS-K                    PIC 9(3).
+       01  WS-K                    PIC 9(5).
        01  WS-EOF                  PIC X VALUE "N".
        01  WS-LINE                 PIC X(4000).
-       01  WS-TMP                  PIC X(500).
+       01  WS-TMP                  PIC X(4000).
        01  WS-TMP2                 PIC X(500).
+       01  WS-DISP-LAT             PIC -(3)9.9(6).
+       01  WS-DISP-LON             PIC -(3)9.9(6).
+       01  WS-DISP-DIST            PIC -(5)9.9(2).
        01  WS-NUM-STR              PIC X(10).
-       01  WS-RESP                 PIC X(4000).
        01  WS-JBUF-SAVE            PIC X(32000).
        01  WS-JLEN-SAVE            PIC 9(5).
+       01  WS-TALLY-CNT            PIC 9(4).
 
-      *> -- Search patterns --
-       01  WS-CODE-PAT             PIC X(6).
-      *> -- Polish city variant table (ASCII -> UTF8) --
-       01  WS-VARIANT-CT           PIC 9(1) VALUE 0.
-       01  WS-VARIANTS.
-           05 WS-VAR OCCURS 10 TIMES.
-              10 WS-VAR-ASCII      PIC X(50).
-              10 WS-VAR-UTF8       PIC X(50).
+      *> -- Suspects path --
+       01  WS-SUSPECTS-PATH        PIC X(200).
 
-      *> -- System command buffer for curl binary --
+      *> -- System command buffer --
        01  WS-CMD                  PIC X(4000).
+
+      *> -- Agent conversation buffer (64KB) --
+       01  WS-CONV-BUF             PIC X(64000).
+       01  WS-CONV-PTR             PIC 9(5).
+
+      *> -- Agent loop --
+       01  WS-AG-STEP              PIC 9(2) VALUE 00.
+       01  WS-AG-DONE              PIC X VALUE "N".
+       01  WS-AG-CONTENT           PIC X(2000).
+
+      *> -- Tool call parsing --
+       01  WS-TOOL-NAME            PIC X(50).
+       01  WS-TOOL-CALL-ID         PIC X(100).
+       01  WS-TOOL-ARGS            PIC X(500).
+       01  WS-TOOL-RESULT          PIC X(8000).
+       01  WS-TOOL-RESULT-LEN      PIC 9(5).
+
+      *> -- Tool arg parsing --
+       01  WS-TA-NAME              PIC X(50).
+       01  WS-TA-SURNAME           PIC X(50).
+       01  WS-TA-BYEAR             PIC 9(4).
+       01  WS-TA-ANSWER            PIC X(2000).
+
+      *> -- Closest match tracking --
+       01  WS-BEST-NAME            PIC X(50).
+       01  WS-BEST-SURNAME         PIC X(50).
+       01  WS-BEST-BYEAR           PIC 9(4).
+       01  WS-BEST-DIST            PIC S9(5)V9(2)
+                                   VALUE +99999.
+       01  WS-BEST-CITY            PIC X(50).
+       01  WS-BEST-CODE            PIC X(20).
+       01  WS-BEST-FOUND           PIC X VALUE "N".
+
+      *> -- Per-suspect best for summary --
+       01  WS-SU-BEST-DIST         PIC S9(5)V9(2).
+       01  WS-SU-BEST-CITY         PIC X(50).
+       01  WS-SU-BEST-CODE         PIC X(20).
+       01  WS-SU-HAS-MATCH         PIC X.
+
+      *> -- Location parsing (multiple per suspect) --
+       01  WS-LOC-LAT              PIC S9(3)V9(6).
+       01  WS-LOC-LON              PIC S9(3)V9(6).
+       01  WS-LOC-JBUF             PIC X(8000).
+       01  WS-LOC-JLEN             PIC 9(5).
+       01  WS-LOC-SCAN             PIC 9(5).
+       01  WS-LOC-ARR-START        PIC 9(5).
+       01  WS-LOC-ARR-END          PIC 9(5).
+       01  WS-LOC-OBJ-START        PIC 9(5).
+       01  WS-LOC-OBJ-END          PIC 9(5).
+       01  WS-LOC-DEPTH            PIC 9(2).
+       01  WS-LOC-OBJ-BUF          PIC X(500).
+
+      *> -- LLM request file --
+       01  WS-REQ-JSON             PIC X(64000).
+
+      *> -- Retry counter --
+       01  WS-RETRY-CT             PIC 9(2) VALUE 0.
+
+      *> -- Nudge counter --
+       01  WS-NUDGE-CT             PIC 9(1) VALUE 0.
+
+      *> -- Summary buffer for closest tool --
+       01  WS-SUMMARY-BUF          PIC X(4000).
+       01  WS-SUMMARY-PTR          PIC 9(5).
 
        PROCEDURE DIVISION.
        MAIN-PARA.
-           DISPLAY "=== S01E02 FINDHIM - COBOL ==="
+           DISPLAY "=== S01E02 FINDHIM - Stable 5-Tool ==="
 
-      *>   Read config from environment variables
-           ACCEPT WS-HUB-KEY FROM ENVIRONMENT "HUB_API_KEY"
-           ACCEPT WS-HUB-URL FROM ENVIRONMENT "HUB_API_URL"
+           ACCEPT WS-HUB-KEY
+               FROM ENVIRONMENT "HUB_API_KEY"
+           ACCEPT WS-OPENAI-KEY
+               FROM ENVIRONMENT "OPENAI_API_KEY"
+           ACCEPT WS-HUB-URL
+               FROM ENVIRONMENT "HUB_API_URL"
+           ACCEPT WS-OPENAI-URL
+               FROM ENVIRONMENT "OPENAI_API_URL"
 
            IF WS-HUB-KEY = SPACES
                DISPLAY "ERROR: HUB_API_KEY not set"
+               STOP RUN
+           END-IF
+           IF WS-OPENAI-KEY = SPACES
+               DISPLAY "ERROR: OPENAI_API_KEY not set"
                STOP RUN
            END-IF
            IF WS-HUB-URL = SPACES
                DISPLAY "ERROR: HUB_API_URL not set"
                STOP RUN
            END-IF
+           IF WS-OPENAI-URL = SPACES
+               DISPLAY "ERROR: OPENAI_API_URL not set"
+               STOP RUN
+           END-IF
 
-      *>   Construct URLs from base URL
+      *>   Construct URLs
            INITIALIZE WS-VERIFY-URL
            STRING TRIM(WS-HUB-URL) "/verify"
                DELIMITED SIZE INTO WS-VERIFY-URL
@@ -171,13 +252,26 @@
                DELIMITED SIZE INTO WS-ACCESS-URL
            END-STRING
 
+      *>   Init JSON newline (backslash + n)
+           MOVE X"5C" TO WS-NL(1:1)
+           MOVE "n"    TO WS-NL(2:1)
+
            COMPUTE WS-RADF = WS-PI-V / 180
 
+      *>   Suspects path
+           ACCEPT WS-SUSPECTS-PATH
+               FROM ENVIRONMENT "SUSPECTS_PATH"
+           IF WS-SUSPECTS-PATH = SPACES
+               MOVE "../S01E01/suspects.json"
+                   TO WS-SUSPECTS-PATH
+           END-IF
+
+      *>   Pre-load suspects and plants
            PERFORM LOAD-SUSPECTS
-           PERFORM FETCH-AND-GEOCODE-PLANTS
-           PERFORM FIND-SUSPECT-NEAR-PLANT
-           PERFORM GET-ACCESS-LEVEL
-           PERFORM SUBMIT-ANSWER
+           PERFORM LOAD-PLANTS
+
+      *>   Run the agent
+           PERFORM RUN-AGENT
 
            DISPLAY " "
            DISPLAY "=== ZAKONCZONO ==="
@@ -199,16 +293,18 @@
                    AT END
                        MOVE "Y" TO WS-EOF
                    NOT AT END
-      *>               Append trimmed line to buffer
                        MOVE TRIM(WS-LINE) TO WS-LINE
-                       MOVE LENGTH(TRIM(WS-LINE)) TO WS-K
+                       MOVE LENGTH(TRIM(WS-LINE))
+                           TO WS-K
                        IF WS-K > 0
                            IF WS-JLEN > 0
                                ADD 1 TO WS-JLEN
-                               MOVE " " TO WS-JBUF(WS-JLEN:1)
+                               MOVE " "
+                                 TO WS-JBUF(WS-JLEN:1)
                            END-IF
                            MOVE WS-LINE(1:WS-K)
-                               TO WS-JBUF(WS-JLEN + 1:WS-K)
+                             TO WS-JBUF(
+                                WS-JLEN + 1:WS-K)
                            ADD WS-K TO WS-JLEN
                        END-IF
                END-READ
@@ -228,24 +324,96 @@
            .
 
       *> ============================================================
-      *> FIND-JSON-VAL: Find "key":"value" in WS-JBUF from WS-JPOS
-      *> Input: WS-KEY-SEARCH = key name, WS-JPOS = start pos
-      *> Output: WS-JVAL = extracted value, WS-JPOS updated
+      *> JSON-ESCAPE-STR: Escape quotes/backslash in string
+      *> Input:  WS-ESC-IN
+      *> Output: WS-ESC-OUT, WS-ESC-OLEN
+      *> ============================================================
+       JSON-ESCAPE-STR.
+           MOVE SPACES TO WS-ESC-OUT
+           MOVE 0 TO WS-ESC-OLEN
+           MOVE LENGTH(TRIM(WS-ESC-IN))
+               TO WS-ESC-ILEN
+
+           IF WS-ESC-ILEN = 0
+               EXIT PARAGRAPH
+           END-IF
+
+           PERFORM VARYING WS-ESC-I FROM 1 BY 1
+               UNTIL WS-ESC-I > WS-ESC-ILEN
+               EVALUATE TRUE
+               WHEN WS-ESC-IN(WS-ESC-I:1) = WS-QT
+                   ADD 1 TO WS-ESC-OLEN
+                   MOVE X"5C"
+                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
+                   ADD 1 TO WS-ESC-OLEN
+                   MOVE WS-QT
+                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
+               WHEN WS-ESC-IN(WS-ESC-I:1) = X"5C"
+                   ADD 1 TO WS-ESC-OLEN
+                   MOVE X"5C"
+                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
+                   ADD 1 TO WS-ESC-OLEN
+                   MOVE X"5C"
+                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
+               WHEN OTHER
+                   ADD 1 TO WS-ESC-OLEN
+                   MOVE WS-ESC-IN(WS-ESC-I:1)
+                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
+               END-EVALUATE
+           END-PERFORM
+           .
+
+      *> ============================================================
+      *> JSON-UNESCAPE-STR
+      *> ============================================================
+       JSON-UNESCAPE-STR.
+           MOVE SPACES TO WS-ESC-OUT
+           MOVE 0 TO WS-ESC-OLEN
+           MOVE LENGTH(TRIM(WS-ESC-IN))
+               TO WS-ESC-ILEN
+
+           IF WS-ESC-ILEN = 0
+               EXIT PARAGRAPH
+           END-IF
+
+           MOVE 1 TO WS-ESC-I
+           PERFORM UNTIL WS-ESC-I > WS-ESC-ILEN
+               IF WS-ESC-IN(WS-ESC-I:1) = X"5C"
+               AND WS-ESC-I < WS-ESC-ILEN
+                   ADD 1 TO WS-ESC-I
+                   ADD 1 TO WS-ESC-OLEN
+                   MOVE WS-ESC-IN(WS-ESC-I:1)
+                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
+               ELSE
+                   ADD 1 TO WS-ESC-OLEN
+                   MOVE WS-ESC-IN(WS-ESC-I:1)
+                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
+               END-IF
+               ADD 1 TO WS-ESC-I
+           END-PERFORM
+           .
+
+      *> ============================================================
+      *> FIND-JSON-VAL: Find "key":"value" in WS-JBUF
+      *> Input: WS-KEY-SEARCH, WS-JPOS
+      *> Output: WS-JVAL, WS-JPOS updated
       *> ============================================================
        FIND-JSON-VAL.
            MOVE SPACES TO WS-JVAL
-           MOVE SPACES TO WS-TMP
+           MOVE SPACES TO WS-TMP2
            STRING WS-QT TRIM(WS-KEY-SEARCH) WS-QT
-               DELIMITED SIZE INTO WS-TMP
+               DELIMITED SIZE INTO WS-TMP2
            END-STRING
 
-      *>   Find the key (uses WS-FJV-POS to avoid clobbering)
+      *>   Find the key
            MOVE 0 TO WS-KEY-POS
-           PERFORM VARYING WS-FJV-POS FROM WS-JPOS BY 1
+           PERFORM VARYING WS-FJV-POS
+               FROM WS-JPOS BY 1
                UNTIL WS-FJV-POS > WS-JLEN
                OR WS-KEY-POS > 0
-               IF WS-JBUF(WS-FJV-POS:LENGTH(TRIM(WS-TMP)))
-                   = TRIM(WS-TMP)
+               IF WS-JBUF(WS-FJV-POS:
+                   LENGTH(TRIM(WS-TMP2)))
+                   = TRIM(WS-TMP2)
                    MOVE WS-FJV-POS TO WS-KEY-POS
                END-IF
            END-PERFORM
@@ -256,7 +424,7 @@
 
       *>   Skip past key and colon
            COMPUTE WS-FJV-POS =
-               WS-KEY-POS + LENGTH(TRIM(WS-TMP))
+               WS-KEY-POS + LENGTH(TRIM(WS-TMP2))
            PERFORM UNTIL WS-FJV-POS > WS-JLEN
                OR WS-JBUF(WS-FJV-POS:1) = ":"
                ADD 1 TO WS-FJV-POS
@@ -269,24 +437,34 @@
                ADD 1 TO WS-FJV-POS
            END-PERFORM
 
-      *>   Check if string value (starts with quote)
+      *>   String value?
            IF WS-JBUF(WS-FJV-POS:1) = WS-QT
                ADD 1 TO WS-FJV-POS
                MOVE WS-FJV-POS TO WS-VAL-START
-      *>       Find closing quote
+      *>       Find closing quote (skip escaped)
                PERFORM UNTIL WS-FJV-POS > WS-JLEN
-                   OR WS-JBUF(WS-FJV-POS:1) = WS-QT
-                   ADD 1 TO WS-FJV-POS
+                   IF WS-JBUF(WS-FJV-POS:1) = X"5C"
+                   AND WS-FJV-POS < WS-JLEN
+                       ADD 2 TO WS-FJV-POS
+                   ELSE
+                       IF WS-JBUF(WS-FJV-POS:1)
+                           = WS-QT
+                           EXIT PERFORM
+                       END-IF
+                       ADD 1 TO WS-FJV-POS
+                   END-IF
                END-PERFORM
-               COMPUTE WS-VAL-END = WS-FJV-POS - 1
+               COMPUTE WS-VAL-END =
+                   WS-FJV-POS - 1
                IF WS-VAL-END >= WS-VAL-START
                    MOVE WS-JBUF(WS-VAL-START:
-                       WS-VAL-END - WS-VAL-START + 1)
+                       WS-VAL-END - WS-VAL-START
+                       + 1)
                        TO WS-JVAL
                END-IF
                ADD 1 TO WS-FJV-POS
            ELSE
-      *>       Numeric value: read until comma/brace/bracket
+      *>       Numeric: read until delimiter
                MOVE WS-FJV-POS TO WS-VAL-START
                PERFORM UNTIL WS-FJV-POS > WS-JLEN
                    OR WS-JBUF(WS-FJV-POS:1) = ","
@@ -295,10 +473,12 @@
                    OR WS-JBUF(WS-FJV-POS:1) = " "
                    ADD 1 TO WS-FJV-POS
                END-PERFORM
-               COMPUTE WS-VAL-END = WS-FJV-POS - 1
+               COMPUTE WS-VAL-END =
+                   WS-FJV-POS - 1
                IF WS-VAL-END >= WS-VAL-START
                    MOVE WS-JBUF(WS-VAL-START:
-                       WS-VAL-END - WS-VAL-START + 1)
+                       WS-VAL-END - WS-VAL-START
+                       + 1)
                        TO WS-JVAL
                END-IF
            END-IF
@@ -306,18 +486,18 @@
            .
 
       *> ============================================================
-      *> FIND-JSON-ARRAY: Find [...] in WS-JBUF after key
-      *> Sets WS-ARR-START, WS-ARR-END
+      *> FIND-JSON-ARRAY: Find [...] after key
       *> ============================================================
        FIND-JSON-ARRAY.
            MOVE 0 TO WS-ARR-START WS-ARR-END
 
-      *>   From current WS-JPOS find opening [
-           PERFORM VARYING WS-SCAN-POS FROM WS-JPOS BY 1
+           PERFORM VARYING WS-SCAN-POS
+               FROM WS-JPOS BY 1
                UNTIL WS-SCAN-POS > WS-JLEN
                OR WS-ARR-START > 0
                IF WS-JBUF(WS-SCAN-POS:1) = "["
-                   MOVE WS-SCAN-POS TO WS-ARR-START
+                   MOVE WS-SCAN-POS
+                       TO WS-ARR-START
                END-IF
            END-PERFORM
 
@@ -325,19 +505,21 @@
                EXIT PARAGRAPH
            END-IF
 
-      *>   Find matching ]
            MOVE 1 TO WS-BRACKET-DEPTH
-           COMPUTE WS-SCAN-POS = WS-ARR-START + 1
+           COMPUTE WS-SCAN-POS =
+               WS-ARR-START + 1
            PERFORM UNTIL WS-SCAN-POS > WS-JLEN
                OR WS-BRACKET-DEPTH = 0
                IF WS-JBUF(WS-SCAN-POS:1) = "["
                    ADD 1 TO WS-BRACKET-DEPTH
                END-IF
                IF WS-JBUF(WS-SCAN-POS:1) = "]"
-                   SUBTRACT 1 FROM WS-BRACKET-DEPTH
+                   SUBTRACT 1
+                       FROM WS-BRACKET-DEPTH
                END-IF
                IF WS-BRACKET-DEPTH = 0
-                   MOVE WS-SCAN-POS TO WS-ARR-END
+                   MOVE WS-SCAN-POS
+                       TO WS-ARR-END
                END-IF
                ADD 1 TO WS-SCAN-POS
            END-PERFORM
@@ -345,18 +527,16 @@
 
       *> ============================================================
       *> NEXT-JSON-OBJ: Get next {...} from array
-      *> Input: WS-SCAN-POS (start scanning from)
-      *> Output: WS-OBJ-BUF, WS-OBJ-START, WS-OBJ-END
       *> ============================================================
        NEXT-JSON-OBJ.
            MOVE SPACES TO WS-OBJ-BUF
            MOVE 0 TO WS-OBJ-START WS-OBJ-END
 
-      *>   Find opening {
            PERFORM UNTIL WS-SCAN-POS > WS-ARR-END
                OR WS-OBJ-START > 0
                IF WS-JBUF(WS-SCAN-POS:1) = "{"
-                   MOVE WS-SCAN-POS TO WS-OBJ-START
+                   MOVE WS-SCAN-POS
+                       TO WS-OBJ-START
                END-IF
                ADD 1 TO WS-SCAN-POS
            END-PERFORM
@@ -365,7 +545,6 @@
                EXIT PARAGRAPH
            END-IF
 
-      *>   Find matching }
            MOVE 1 TO WS-BRACKET-DEPTH
            PERFORM UNTIL WS-SCAN-POS > WS-ARR-END
                OR WS-BRACKET-DEPTH = 0
@@ -373,10 +552,12 @@
                    ADD 1 TO WS-BRACKET-DEPTH
                END-IF
                IF WS-JBUF(WS-SCAN-POS:1) = "}"
-                   SUBTRACT 1 FROM WS-BRACKET-DEPTH
+                   SUBTRACT 1
+                       FROM WS-BRACKET-DEPTH
                END-IF
                IF WS-BRACKET-DEPTH = 0
-                   MOVE WS-SCAN-POS TO WS-OBJ-END
+                   MOVE WS-SCAN-POS
+                       TO WS-OBJ-END
                END-IF
                ADD 1 TO WS-SCAN-POS
            END-PERFORM
@@ -389,189 +570,224 @@
            .
 
       *> ============================================================
-      *> LOAD SUSPECTS from ../S01E01/suspects.json
+      *> LOAD-SUSPECTS
       *> ============================================================
        LOAD-SUSPECTS.
            DISPLAY " "
-           DISPLAY "--- Krok 1: Ladowanie podejrzanych ---"
+           DISPLAY "--- Loading suspects ---"
+           DISPLAY "  Path: "
+               TRIM(WS-SUSPECTS-PATH)
 
-           MOVE "../S01E01/suspects.json" TO WS-WORK-PATH
+           MOVE WS-SUSPECTS-PATH TO WS-WORK-PATH
            PERFORM READ-JSON-FILE
            MOVE "work.tmp" TO WS-WORK-PATH
 
            IF WS-JLEN = 0
-               DISPLAY "  BLAD: Brak suspects.json!"
+               DISPLAY "  ERROR: No suspects!"
                STOP RUN
            END-IF
 
-      *>   Find the top-level array
            MOVE 1 TO WS-JPOS
            PERFORM FIND-JSON-ARRAY
 
            MOVE 0 TO WS-SUSP-CT
            MOVE WS-ARR-START TO WS-SCAN-POS
 
-           PERFORM UNTIL WS-SCAN-POS >= WS-ARR-END
+           PERFORM UNTIL WS-SCAN-POS
+               >= WS-ARR-END
                PERFORM NEXT-JSON-OBJ
                IF WS-OBJ-START = 0
                    EXIT PERFORM
                END-IF
                ADD 1 TO WS-SUSP-CT
 
-      *>       Parse object fields using OBJ-BUF as mini-JSON
-               MOVE WS-OBJ-BUF TO WS-TMP2
                MOVE WS-JBUF TO WS-JBUF-SAVE
                MOVE WS-JLEN TO WS-JLEN-SAVE
                MOVE WS-OBJ-BUF TO WS-JBUF
-               MOVE LENGTH(TRIM(WS-OBJ-BUF)) TO WS-JLEN
+               MOVE LENGTH(TRIM(WS-OBJ-BUF))
+                   TO WS-JLEN
 
                MOVE "name" TO WS-KEY-SEARCH
                MOVE 1 TO WS-JPOS
                PERFORM FIND-JSON-VAL
-               MOVE WS-JVAL TO WS-SU-NAME(WS-SUSP-CT)
+               MOVE WS-JVAL
+                   TO WS-SU-NAME(WS-SUSP-CT)
 
                MOVE "surname" TO WS-KEY-SEARCH
                MOVE 1 TO WS-JPOS
                PERFORM FIND-JSON-VAL
-               MOVE WS-JVAL TO WS-SU-SURNAME(WS-SUSP-CT)
+               MOVE WS-JVAL
+                 TO WS-SU-SURNAME(WS-SUSP-CT)
 
                MOVE "birthYear" TO WS-KEY-SEARCH
                MOVE 1 TO WS-JPOS
                PERFORM FIND-JSON-VAL
-               COMPUTE WS-SU-BYEAR(WS-SUSP-CT) =
-                   NUMVAL(TRIM(WS-JVAL))
+               COMPUTE WS-SU-BYEAR(WS-SUSP-CT)
+                   = NUMVAL(TRIM(WS-JVAL))
 
-      *>       Restore main buffer
                MOVE WS-JBUF-SAVE TO WS-JBUF
                MOVE WS-JLEN-SAVE TO WS-JLEN
            END-PERFORM
 
-           DISPLAY "  Zaladowano " WS-SUSP-CT " podejrzanych"
-           PERFORM VARYING WS-I FROM 1 BY 1
-               UNTIL WS-I > WS-SUSP-CT
-               DISPLAY "    " TRIM(WS-SU-NAME(WS-I))
-                   " " TRIM(WS-SU-SURNAME(WS-I))
-                   " (ur. " WS-SU-BYEAR(WS-I) ")"
-           END-PERFORM
+           DISPLAY "  Loaded " WS-SUSP-CT
+               " suspects"
            .
 
       *> ============================================================
-      *> FETCH + GEOCODE PLANTS
+      *> LOAD-PLANTS: Fetch plants JSON + geocode each
       *> ============================================================
-       FETCH-AND-GEOCODE-PLANTS.
+       LOAD-PLANTS.
            DISPLAY " "
-           DISPLAY "--- Krok 2: Elektrownie + geokodowanie ---"
+           DISPLAY "--- Loading power plants ---"
 
-      *>   Fetch plants JSON via curl binary GET
-           INITIALIZE WS-CMD
-           STRING "curl -s -o plants.json "
-               WS-QT TRIM(WS-HUB-URL) "/data/"
-               TRIM(WS-HUB-KEY) "/findhim_locations.json" WS-QT
-               DELIMITED SIZE INTO WS-CMD
-           END-STRING
-           CALL "SYSTEM" USING WS-CMD
+      *>   Fetch via curl with retry
+           MOVE 0 TO WS-RETRY-CT
+           PERFORM UNTIL WS-RETRY-CT >= 10
+               INITIALIZE WS-CMD
+               STRING "curl -s -o plants.json "
+                   "--retry 3 --retry-delay 5 "
+                   WS-QT TRIM(WS-HUB-URL)
+                   "/data/"
+                   TRIM(WS-HUB-KEY)
+                   "/findhim_locations.json"
+                   WS-QT
+                   DELIMITED SIZE INTO WS-CMD
+               END-STRING
+               CALL "SYSTEM" USING WS-CMD
 
-      *>   Parse plants JSON
-           MOVE "plants.json" TO WS-WORK-PATH
-           PERFORM READ-JSON-FILE
-           MOVE "work.tmp" TO WS-WORK-PATH
+               MOVE "plants.json"
+                   TO WS-WORK-PATH
+               PERFORM READ-JSON-FILE
+               MOVE "work.tmp" TO WS-WORK-PATH
 
-      *>   Find "power_plants" key, then iterate its object keys
+               MOVE 0 TO WS-TALLY-CNT
+               IF WS-JLEN > 10
+                   INSPECT WS-JBUF(1:WS-JLEN)
+                       TALLYING WS-TALLY-CNT
+                       FOR ALL "power_plants"
+               END-IF
+               IF WS-TALLY-CNT > 0
+                   EXIT PERFORM
+               END-IF
+
+               ADD 1 TO WS-RETRY-CT
+               DISPLAY "  Retry " WS-RETRY-CT
+                   " (rate limit?)..."
+               CALL "C$SLEEP" USING 15
+           END-PERFORM
+
+      *>   Parse power_plants object keys
            MOVE 0 TO WS-PLANT-CT
-           MOVE SPACES TO WS-TMP
+           MOVE SPACES TO WS-TMP2
            STRING WS-QT "power_plants" WS-QT
-               DELIMITED SIZE INTO WS-TMP
+               DELIMITED SIZE INTO WS-TMP2
            END-STRING
 
-      *>   Locate "power_plants" in buffer
            MOVE 0 TO WS-KEY-POS
-           PERFORM VARYING WS-SCAN-POS FROM 1 BY 1
+           PERFORM VARYING WS-SCAN-POS
+               FROM 1 BY 1
                UNTIL WS-SCAN-POS > WS-JLEN
                OR WS-KEY-POS > 0
-               IF WS-SCAN-POS + LENGTH(TRIM(WS-TMP)) - 1
+               IF WS-SCAN-POS
+                   + LENGTH(TRIM(WS-TMP2)) - 1
                    <= WS-JLEN
                AND WS-JBUF(WS-SCAN-POS:
-                   LENGTH(TRIM(WS-TMP))) = TRIM(WS-TMP)
-                   MOVE WS-SCAN-POS TO WS-KEY-POS
+                   LENGTH(TRIM(WS-TMP2)))
+                   = TRIM(WS-TMP2)
+                   MOVE WS-SCAN-POS
+                       TO WS-KEY-POS
                END-IF
            END-PERFORM
 
            IF WS-KEY-POS = 0
-               DISPLAY "  BLAD: brak power_plants!"
+               DISPLAY "  ERROR: no power_plants!"
                EXIT PARAGRAPH
            END-IF
 
       *>   Skip past "power_plants" : {
            COMPUTE WS-SCAN-POS =
-               WS-KEY-POS + LENGTH(TRIM(WS-TMP))
+               WS-KEY-POS
+               + LENGTH(TRIM(WS-TMP2))
            PERFORM UNTIL WS-SCAN-POS > WS-JLEN
                OR WS-JBUF(WS-SCAN-POS:1) = "{"
                ADD 1 TO WS-SCAN-POS
            END-PERFORM
            ADD 1 TO WS-SCAN-POS
 
-      *>   Iterate city keys within the power_plants object
+      *>   Iterate city keys
            PERFORM UNTIL WS-SCAN-POS > WS-JLEN
-      *>       Skip whitespace and commas
+      *>       Skip whitespace/commas
                PERFORM UNTIL WS-SCAN-POS > WS-JLEN
-                   OR (WS-JBUF(WS-SCAN-POS:1) NOT = " "
-                   AND WS-JBUF(WS-SCAN-POS:1) NOT = ","
-                   AND WS-JBUF(WS-SCAN-POS:1) NOT = X"0A"
-                   AND WS-JBUF(WS-SCAN-POS:1) NOT = X"0D")
+                   OR (WS-JBUF(WS-SCAN-POS:1)
+                       NOT = " "
+                   AND WS-JBUF(WS-SCAN-POS:1)
+                       NOT = ","
+                   AND WS-JBUF(WS-SCAN-POS:1)
+                       NOT = X"0A"
+                   AND WS-JBUF(WS-SCAN-POS:1)
+                       NOT = X"0D")
                    ADD 1 TO WS-SCAN-POS
                END-PERFORM
 
-      *>       End of power_plants object?
                IF WS-JBUF(WS-SCAN-POS:1) = "}"
                    EXIT PERFORM
                END-IF
 
-      *>       Expect opening quote of city key
-               IF WS-JBUF(WS-SCAN-POS:1) NOT = WS-QT
+               IF WS-JBUF(WS-SCAN-POS:1)
+                   NOT = WS-QT
                    ADD 1 TO WS-SCAN-POS
                    EXIT PERFORM
                END-IF
 
-      *>       Extract city name between quotes
+      *>       Extract city name
                ADD 1 TO WS-SCAN-POS
                MOVE WS-SCAN-POS TO WS-VAL-START
                PERFORM UNTIL WS-SCAN-POS > WS-JLEN
-                   OR WS-JBUF(WS-SCAN-POS:1) = WS-QT
+                   OR WS-JBUF(WS-SCAN-POS:1)
+                       = WS-QT
                    ADD 1 TO WS-SCAN-POS
                END-PERFORM
-               COMPUTE WS-VAL-END = WS-SCAN-POS - 1
+               COMPUTE WS-VAL-END =
+                   WS-SCAN-POS - 1
                ADD 1 TO WS-PLANT-CT
 
                IF WS-VAL-END >= WS-VAL-START
                    MOVE WS-JBUF(WS-VAL-START:
-                       WS-VAL-END - WS-VAL-START + 1)
+                       WS-VAL-END - WS-VAL-START
+                       + 1)
                        TO WS-PL-CITY(WS-PLANT-CT)
                END-IF
                ADD 1 TO WS-SCAN-POS
 
-      *>       Skip to opening { of this city's sub-object
-               PERFORM UNTIL WS-SCAN-POS > WS-JLEN
-                   OR WS-JBUF(WS-SCAN-POS:1) = "{"
+      *>       Skip to { of sub-object
+               PERFORM UNTIL WS-SCAN-POS
+                   > WS-JLEN
+                   OR WS-JBUF(WS-SCAN-POS:1)
+                       = "{"
                    ADD 1 TO WS-SCAN-POS
                END-PERFORM
                MOVE WS-SCAN-POS TO WS-OBJ-START
 
-      *>       Find matching } (track nesting depth)
+      *>       Find matching }
                MOVE 1 TO WS-BRACKET-DEPTH
                ADD 1 TO WS-SCAN-POS
-               PERFORM UNTIL WS-SCAN-POS > WS-JLEN
+               PERFORM UNTIL WS-SCAN-POS
+                   > WS-JLEN
                    OR WS-BRACKET-DEPTH = 0
                    IF WS-JBUF(WS-SCAN-POS:1) = "{"
-                       ADD 1 TO WS-BRACKET-DEPTH
+                       ADD 1
+                           TO WS-BRACKET-DEPTH
                    END-IF
                    IF WS-JBUF(WS-SCAN-POS:1) = "}"
-                       SUBTRACT 1 FROM WS-BRACKET-DEPTH
+                       SUBTRACT 1
+                           FROM WS-BRACKET-DEPTH
                    END-IF
                    ADD 1 TO WS-SCAN-POS
                END-PERFORM
-               COMPUTE WS-OBJ-END = WS-SCAN-POS - 1
+               COMPUTE WS-OBJ-END =
+                   WS-SCAN-POS - 1
 
-      *>       Extract "code" from this sub-object
+      *>       Extract "code"
                COMPUTE WS-K =
                    WS-OBJ-END - WS-OBJ-START + 1
                MOVE WS-JBUF(WS-OBJ-START:WS-K)
@@ -592,50 +808,51 @@
                MOVE WS-JLEN-SAVE TO WS-JLEN
            END-PERFORM
 
-           DISPLAY "  Znaleziono " WS-PLANT-CT " elektrowni"
+           DISPLAY "  Loaded " WS-PLANT-CT
+               " plants"
 
-      *>   Geocode each plant
+      *>   Geocode each plant city at load time
            PERFORM VARYING WS-I FROM 1 BY 1
                UNTIL WS-I > WS-PLANT-CT
-               PERFORM GEOCODE-PLANT
-               DISPLAY "    " TRIM(WS-PL-CITY(WS-I))
-                   " [" TRIM(WS-PL-CODE(WS-I)) "]"
-                   " lat=" WS-PL-LAT(WS-I)
-                   " lon=" WS-PL-LON(WS-I)
+               DISPLAY "  Geocoding "
+                   TRIM(WS-PL-CITY(WS-I)) "..."
+               MOVE TRIM(WS-PL-CITY(WS-I))
+                   TO WS-GEO-CITY
+               MOVE "N" TO WS-GEO-OK
+               MOVE +0 TO WS-H-LAT1 WS-H-LON1
+
+               PERFORM GEOCODE-QUERY
+               IF WS-GEO-OK NOT = "Y"
+      *>           Try Polish variant
+                   MOVE SUBSTITUTE(
+                       TRIM(WS-PL-CITY(WS-I))
+                       "Chelmno" "Chełmno"
+                       "Zarnowiec" "Żarnowiec"
+                       "Grudziadz" "Grudziądz"
+                       "Piotrkow" "Piotrków"
+                       ) TO WS-GEO-CITY
+                   IF TRIM(WS-GEO-CITY) NOT =
+                       TRIM(WS-PL-CITY(WS-I))
+                       PERFORM GEOCODE-QUERY
+                   END-IF
+               END-IF
+
+               MOVE WS-H-LAT1
+                   TO WS-PL-LAT(WS-I)
+               MOVE WS-H-LON1
+                   TO WS-PL-LON(WS-I)
+               MOVE WS-H-LAT1 TO WS-DISP-LAT
+               MOVE WS-H-LON1 TO WS-DISP-LON
+               DISPLAY "    -> "
+                   TRIM(WS-DISP-LAT) ", "
+                   TRIM(WS-DISP-LON)
            END-PERFORM
            .
 
       *> ============================================================
-      *> GEOCODE-PLANT: Geocode city for plant WS-I
-      *> Tries original name, then Polish-char variant
+      *> GEOCODE-QUERY: Geocode WS-GEO-CITY -> H-LAT1/LON1
       *> ============================================================
-       GEOCODE-PLANT.
-           MOVE TRIM(WS-PL-CITY(WS-I)) TO WS-GEO-CITY
-           MOVE "N" TO WS-GEO-OK
-           MOVE +0 TO WS-PL-LAT(WS-I) WS-PL-LON(WS-I)
-
-      *>   Try original city name (most have UTF-8 Polish chars)
-           PERFORM GEOCODE-QUERY
-           IF WS-GEO-OK = "Y"
-               EXIT PARAGRAPH
-           END-IF
-
-      *>   Build Polish variant using SUBSTITUTE for known patterns
-      *>   Chelmno -> Chełmno, Zarnowiec -> Żarnowiec, etc.
-           MOVE SUBSTITUTE(TRIM(WS-PL-CITY(WS-I))
-               "Chelmno" "Chełmno"
-               "Zarnowiec" "Żarnowiec"
-               "Grudziadz" "Grudziądz"
-               "Piotrkow" "Piotrków"
-               ) TO WS-GEO-CITY
-           IF TRIM(WS-GEO-CITY) NOT =
-               TRIM(WS-PL-CITY(WS-I))
-               PERFORM GEOCODE-QUERY
-           END-IF
-           .
-
        GEOCODE-QUERY.
-      *>   URL-encode Polish UTF-8 chars + space for geocoding
            MOVE SUBSTITUTE(TRIM(WS-GEO-CITY)
                " " "+"
                "ą" "%C4%85"
@@ -650,20 +867,22 @@
                "Ż" "%C5%BB"
                "Ą" "%C4%84"
                "Ł" "%C5%81"
-               ) TO WS-TMP
+               "Ó" "%C3%93"
+               "ą" "%C4%85"
+               "Ś" "%C5%9A"
+               ) TO WS-TMP2
 
-      *>   GET via curl binary
            INITIALIZE WS-CMD
            STRING "curl -s -o geo.json "
-               WS-QT "https://geocoding-api.open-meteo.com"
-               "/v1/search?name="
-               TRIM(WS-TMP)
-               "&count=1" WS-QT
+               WS-QT
+               "https://geocoding-api.open-meteo."
+               "com/v1/search?name="
+               TRIM(WS-TMP2)
+               "&count=10" WS-QT
                DELIMITED SIZE INTO WS-CMD
            END-STRING
            CALL "SYSTEM" USING WS-CMD
 
-      *>   Parse response
            MOVE "geo.json" TO WS-WORK-PATH
            PERFORM READ-JSON-FILE
            MOVE "work.tmp" TO WS-WORK-PATH
@@ -672,7 +891,7 @@
                EXIT PARAGRAPH
            END-IF
 
-      *>   Find "results" array (use KEY-POS so we don't skip [)
+      *>   Find "results" array
            MOVE "results" TO WS-KEY-SEARCH
            MOVE 1 TO WS-JPOS
            PERFORM FIND-JSON-VAL
@@ -683,36 +902,39 @@
                EXIT PARAGRAPH
            END-IF
 
-      *>   Iterate results, find first with country_code=PL
+      *>   Find first PL result
            MOVE WS-ARR-START TO WS-SCAN-POS
-           PERFORM UNTIL WS-SCAN-POS >= WS-ARR-END
+           PERFORM UNTIL WS-SCAN-POS
+               >= WS-ARR-END
                PERFORM NEXT-JSON-OBJ
                IF WS-OBJ-START = 0
                    EXIT PERFORM
                END-IF
 
-      *>       Check country_code
                MOVE WS-JBUF TO WS-JBUF-SAVE
                MOVE WS-JLEN TO WS-JLEN-SAVE
                MOVE WS-OBJ-BUF TO WS-JBUF
-               MOVE LENGTH(TRIM(WS-OBJ-BUF)) TO WS-JLEN
+               MOVE LENGTH(TRIM(WS-OBJ-BUF))
+                   TO WS-JLEN
 
-               MOVE "country_code" TO WS-KEY-SEARCH
+               MOVE "country_code"
+                   TO WS-KEY-SEARCH
                MOVE 1 TO WS-JPOS
                PERFORM FIND-JSON-VAL
 
                IF TRIM(WS-JVAL) = "PL"
-      *>           Extract lat/lon
-                   MOVE "latitude" TO WS-KEY-SEARCH
+                   MOVE "latitude"
+                       TO WS-KEY-SEARCH
                    MOVE 1 TO WS-JPOS
                    PERFORM FIND-JSON-VAL
-                   COMPUTE WS-PL-LAT(WS-I) =
+                   COMPUTE WS-H-LAT1 =
                        NUMVAL(TRIM(WS-JVAL))
 
-                   MOVE "longitude" TO WS-KEY-SEARCH
+                   MOVE "longitude"
+                       TO WS-KEY-SEARCH
                    MOVE 1 TO WS-JPOS
                    PERFORM FIND-JSON-VAL
-                   COMPUTE WS-PL-LON(WS-I) =
+                   COMPUTE WS-H-LON1 =
                        NUMVAL(TRIM(WS-JVAL))
 
                    MOVE "Y" TO WS-GEO-OK
@@ -728,147 +950,1255 @@
            .
 
       *> ============================================================
-      *> FIND SUSPECT NEAR PLANT
+      *> RUN-AGENT: 5-tool agent loop
       *> ============================================================
-       FIND-SUSPECT-NEAR-PLANT.
+       RUN-AGENT.
            DISPLAY " "
-           DISPLAY "--- Krok 3: Szukanie podejrzanego ---"
+           DISPLAY "--- AI Agent starting ---"
 
-           MOVE "N" TO WS-B-FOUND
-           MOVE 99999 TO WS-B-DIST
+           MOVE SPACES TO WS-CONV-BUF
+           MOVE 1 TO WS-CONV-PTR
+
+           STRING
+               "[{" WS-QT "role" WS-QT ":"
+               WS-QT "system" WS-QT ","
+               WS-QT "content" WS-QT ":"
+               WS-QT
+               "You investigate which suspect "
+               "was seen near a nuclear power "
+               "plant in Poland." WS-NL WS-NL
+               "Call tools in this order:"
+               WS-NL
+               "1. get_suspects" WS-NL
+               "2. get_power_plants" WS-NL
+               "3. get_closest_suspect_to_plant"
+               " (computes all distances, "
+               "returns the CLOSEST match)"
+               WS-NL
+               "4. get_access_level for the "
+               "CLOSEST person" WS-NL
+               "5. submit_answer with name, "
+               "surname, access_level, "
+               "power_plant" WS-NL WS-NL
+               "Always call the next tool. "
+               "Never explain in text."
+               WS-QT "},"
+               DELIMITED SIZE
+               INTO WS-CONV-BUF
+               WITH POINTER WS-CONV-PTR
+           END-STRING
+
+           STRING
+               "{" WS-QT "role" WS-QT ":"
+               WS-QT "user" WS-QT ","
+               WS-QT "content" WS-QT ":"
+               WS-QT "Start the investigation."
+               WS-QT "}]"
+               DELIMITED SIZE
+               INTO WS-CONV-BUF
+               WITH POINTER WS-CONV-PTR
+           END-STRING
+
+           MOVE "N" TO WS-AG-DONE
+           MOVE 0 TO WS-AG-STEP
+
+           PERFORM UNTIL WS-AG-DONE = "Y"
+               OR WS-AG-STEP >= 20
+
+               ADD 1 TO WS-AG-STEP
+               DISPLAY " "
+               DISPLAY "  --- Step " WS-AG-STEP
+                   " ---"
+
+               PERFORM SEND-AGENT-REQUEST
+
+               MOVE "agent_resp.json"
+                   TO WS-WORK-PATH
+               PERFORM READ-JSON-FILE
+               MOVE "work.tmp" TO WS-WORK-PATH
+
+               IF WS-JLEN = 0
+                   DISPLAY "  ERROR: Empty resp!"
+                   MOVE "Y" TO WS-AG-DONE
+                   EXIT PERFORM
+               END-IF
+
+      *>       Check API error
+               MOVE 0 TO WS-TALLY-CNT
+               INSPECT WS-JBUF(1:WS-JLEN)
+                   TALLYING WS-TALLY-CNT
+                   FOR ALL '"error"'
+               IF WS-TALLY-CNT > 0
+                   DISPLAY "  API ERROR: "
+                       WS-JBUF(1:500)
+                   MOVE "Y" TO WS-AG-DONE
+                   EXIT PERFORM
+               END-IF
+
+      *>       Check for tool_calls
+               MOVE 0 TO WS-TALLY-CNT
+               INSPECT WS-JBUF(1:WS-JLEN)
+                   TALLYING WS-TALLY-CNT
+                   FOR ALL '"tool_calls"'
+
+               IF WS-TALLY-CNT > 0
+                   PERFORM PARSE-TOOL-CALL
+                   MOVE 0 TO WS-NUDGE-CT
+
+                   DISPLAY "  Tool: "
+                       TRIM(WS-TOOL-NAME)
+                   DISPLAY "  Args: "
+                       TRIM(WS-TOOL-ARGS)
+
+                   PERFORM DISPATCH-TOOL
+                   PERFORM APPEND-TOOL-EXCHANGE
+               ELSE
+      *>           Text response
+                   MOVE "content"
+                       TO WS-KEY-SEARCH
+                   MOVE 1 TO WS-JPOS
+                   PERFORM FIND-JSON-VAL
+                   DISPLAY "  Agent: "
+                       TRIM(WS-JVAL)
+
+      *>           Final?
+                   MOVE 0 TO WS-TALLY-CNT
+                   INSPECT TRIM(WS-JVAL)
+                       TALLYING WS-TALLY-CNT
+                       FOR ALL "ubmitted"
+                   IF WS-TALLY-CNT = 0
+                       INSPECT TRIM(WS-JVAL)
+                           TALLYING WS-TALLY-CNT
+                           FOR ALL "omplete"
+                   END-IF
+                   IF WS-TALLY-CNT = 0
+                       INSPECT TRIM(WS-JVAL)
+                           TALLYING WS-TALLY-CNT
+                           FOR ALL "FLG:"
+                   END-IF
+                   IF WS-TALLY-CNT > 0
+                       MOVE "Y" TO WS-AG-DONE
+                   ELSE
+                       ADD 1 TO WS-NUDGE-CT
+                       IF WS-NUDGE-CT > 3
+                           DISPLAY
+                               "  Agent stuck"
+                           MOVE "Y"
+                               TO WS-AG-DONE
+                       ELSE
+                           PERFORM
+                             APPEND-TEXT-AND-NUDGE
+                       END-IF
+                   END-IF
+               END-IF
+           END-PERFORM
+           .
+
+      *> ============================================================
+      *> SEND-AGENT-REQUEST: Build request with 5 tools
+      *> ============================================================
+       SEND-AGENT-REQUEST.
+           MOVE SPACES TO WS-REQ-JSON
+           MOVE 1 TO WS-PTR
+
+           STRING
+               "{"
+               WS-QT "model" WS-QT ":"
+               WS-QT "gpt-4.1-mini" WS-QT ","
+               WS-QT "messages" WS-QT ":"
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Copy conversation
+           COMPUTE WS-K = WS-CONV-PTR - 1
+           MOVE WS-CONV-BUF(1:WS-K)
+               TO WS-REQ-JSON(WS-PTR:WS-K)
+           ADD WS-K TO WS-PTR
+
+      *>   Tool definitions
+           STRING ","
+               WS-QT "tools" WS-QT ":["
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Tool 1: get_suspects
+           STRING
+               "{" WS-QT "type" WS-QT ":"
+               WS-QT "function" WS-QT ","
+               WS-QT "function" WS-QT ":{"
+               WS-QT "name" WS-QT ":"
+               WS-QT "get_suspects" WS-QT ","
+               WS-QT "description" WS-QT ":"
+               WS-QT "Get list of suspects"
+               WS-QT ","
+               WS-QT "parameters" WS-QT ":"
+               "{" WS-QT "type" WS-QT ":"
+               WS-QT "object" WS-QT ","
+               WS-QT "properties" WS-QT ":{},"
+               WS-QT "required" WS-QT ":[]"
+               "}}},"
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Tool 2: get_power_plants
+           STRING
+               "{" WS-QT "type" WS-QT ":"
+               WS-QT "function" WS-QT ","
+               WS-QT "function" WS-QT ":{"
+               WS-QT "name" WS-QT ":"
+               WS-QT "get_power_plants" WS-QT ","
+               WS-QT "description" WS-QT ":"
+               WS-QT "Get power plants with "
+               "city and code" WS-QT ","
+               WS-QT "parameters" WS-QT ":"
+               "{" WS-QT "type" WS-QT ":"
+               WS-QT "object" WS-QT ","
+               WS-QT "properties" WS-QT ":{},"
+               WS-QT "required" WS-QT ":[]"
+               "}}},"
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Tool 3: get_closest_suspect_to_plant
+           STRING
+               "{" WS-QT "type" WS-QT ":"
+               WS-QT "function" WS-QT ","
+               WS-QT "function" WS-QT ":{"
+               WS-QT "name" WS-QT ":"
+               WS-QT "get_closest_suspect_"
+               "to_plant" WS-QT ","
+               WS-QT "description" WS-QT ":"
+               WS-QT "Finds closest suspect "
+               "to any plant using GPS "
+               "and haversine. Returns "
+               "the CLOSEST match." WS-QT ","
+               WS-QT "parameters" WS-QT ":"
+               "{" WS-QT "type" WS-QT ":"
+               WS-QT "object" WS-QT ","
+               WS-QT "properties" WS-QT ":{},"
+               WS-QT "required" WS-QT ":[]"
+               "}}},"
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Tool 4: get_access_level
+           STRING
+               "{" WS-QT "type" WS-QT ":"
+               WS-QT "function" WS-QT ","
+               WS-QT "function" WS-QT ":{"
+               WS-QT "name" WS-QT ":"
+               WS-QT "get_access_level" WS-QT ","
+               WS-QT "description" WS-QT ":"
+               WS-QT "Get access level for "
+               "a suspect" WS-QT ","
+               WS-QT "parameters" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "object" WS-QT ","
+               WS-QT "properties" WS-QT ":{"
+               WS-QT "name" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "string" WS-QT "},"
+               WS-QT "surname" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "string" WS-QT "},"
+               WS-QT "birth_year" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "integer" WS-QT "}},"
+               WS-QT "required" WS-QT ":["
+               WS-QT "name" WS-QT ","
+               WS-QT "surname" WS-QT ","
+               WS-QT "birth_year" WS-QT
+               "]}}},"
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Tool 5: submit_answer
+           STRING
+               "{" WS-QT "type" WS-QT ":"
+               WS-QT "function" WS-QT ","
+               WS-QT "function" WS-QT ":{"
+               WS-QT "name" WS-QT ":"
+               WS-QT "submit_answer" WS-QT ","
+               WS-QT "description" WS-QT ":"
+               WS-QT "Submit the final answer"
+               WS-QT ","
+               WS-QT "parameters" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "object" WS-QT ","
+               WS-QT "properties" WS-QT ":{"
+               WS-QT "name" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "string" WS-QT "},"
+               WS-QT "surname" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "string" WS-QT "},"
+               WS-QT "access_level" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "integer" WS-QT "},"
+               WS-QT "power_plant" WS-QT ":{"
+               WS-QT "type" WS-QT ":"
+               WS-QT "string" WS-QT "}},"
+               WS-QT "required" WS-QT ":["
+               WS-QT "name" WS-QT ","
+               WS-QT "surname" WS-QT ","
+               WS-QT "access_level" WS-QT ","
+               WS-QT "power_plant" WS-QT
+               "]}}}],"
+               WS-QT "tool_choice" WS-QT ":"
+               WS-QT "auto" WS-QT "}"
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Write and send
+           MOVE "agent_req.json"
+               TO WS-WORK-PATH
+           OPEN OUTPUT WORK-FILE
+           WRITE WORK-REC FROM WS-REQ-JSON
+           CLOSE WORK-FILE
+
+           INITIALIZE WS-CMD
+           STRING
+               "curl -s -o agent_resp.json"
+               " -X POST "
+               TRIM(WS-OPENAI-URL)
+               " -H " WS-QT
+               "Content-Type: "
+               "application/json" WS-QT
+               " -H " WS-QT
+               "Authorization: Bearer "
+               TRIM(WS-OPENAI-KEY) WS-QT
+               " -d @agent_req.json"
+               DELIMITED SIZE
+               INTO WS-CMD
+           END-STRING
+           CALL "SYSTEM" USING WS-CMD
+           .
+
+      *> ============================================================
+      *> DISPATCH-TOOL
+      *> ============================================================
+       DISPATCH-TOOL.
+           MOVE SPACES TO WS-TOOL-RESULT
+           MOVE 0 TO WS-TOOL-RESULT-LEN
+
+           EVALUATE TRIM(WS-TOOL-NAME)
+           WHEN "get_suspects"
+               PERFORM TOOL-GET-SUSPECTS
+           WHEN "get_power_plants"
+               PERFORM TOOL-GET-POWER-PLANTS
+           WHEN "get_closest_suspect_to_plant"
+               PERFORM TOOL-GET-CLOSEST
+           WHEN "get_access_level"
+               PERFORM TOOL-GET-ACCESS-LEVEL
+           WHEN "submit_answer"
+               PERFORM TOOL-SUBMIT-ANSWER
+           WHEN OTHER
+               MOVE '{"error":"Unknown tool"}'
+                   TO WS-TOOL-RESULT
+               MOVE 23 TO WS-TOOL-RESULT-LEN
+           END-EVALUATE
+           .
+
+      *> ============================================================
+      *> TOOL-GET-SUSPECTS: Return suspects JSON
+      *> ============================================================
+       TOOL-GET-SUSPECTS.
+           MOVE SPACES TO WS-TOOL-RESULT
+           MOVE 1 TO WS-PTR
+           STRING "[" DELIMITED SIZE
+               INTO WS-TOOL-RESULT
+               WITH POINTER WS-PTR
+           END-STRING
 
            PERFORM VARYING WS-I FROM 1 BY 1
                UNTIL WS-I > WS-SUSP-CT
-               PERFORM CHECK-ONE-SUSPECT
+
+               IF WS-I > 1
+                   STRING "," DELIMITED SIZE
+                       INTO WS-TOOL-RESULT
+                       WITH POINTER WS-PTR
+                   END-STRING
+               END-IF
+
+               MOVE TRIM(WS-SU-NAME(WS-I))
+                   TO WS-ESC-IN
+               PERFORM JSON-ESCAPE-STR
+               MOVE WS-ESC-OUT TO WS-TMP2
+               MOVE WS-ESC-OLEN TO WS-K
+
+               STRING
+                   "{" WS-QT "name" WS-QT ":"
+                   WS-QT WS-TMP2(1:WS-K) WS-QT
+                   ","
+                   DELIMITED SIZE
+                   INTO WS-TOOL-RESULT
+                   WITH POINTER WS-PTR
+               END-STRING
+
+               MOVE TRIM(WS-SU-SURNAME(WS-I))
+                   TO WS-ESC-IN
+               PERFORM JSON-ESCAPE-STR
+
+               STRING
+                   WS-QT "surname" WS-QT ":"
+                   WS-QT WS-ESC-OUT(1:
+                       WS-ESC-OLEN) WS-QT ","
+                   WS-QT "birthYear" WS-QT ":"
+                   WS-SU-BYEAR(WS-I) "}"
+                   DELIMITED SIZE
+                   INTO WS-TOOL-RESULT
+                   WITH POINTER WS-PTR
+               END-STRING
            END-PERFORM
 
-           IF WS-B-FOUND = "Y"
-               DISPLAY "  >>> " TRIM(WS-B-NAME) " "
-                   TRIM(WS-B-SURNAME) " przy "
-                   TRIM(WS-B-PCITY) " ("
-                   TRIM(WS-B-PCODE) ") "
-                   WS-B-DIST "km"
-           ELSE
-               DISPLAY "  NIE ZNALEZIONO!"
-               STOP RUN
-           END-IF
+           STRING "]" DELIMITED SIZE
+               INTO WS-TOOL-RESULT
+               WITH POINTER WS-PTR
+           END-STRING
+           COMPUTE WS-TOOL-RESULT-LEN =
+               WS-PTR - 1
            .
 
-       CHECK-ONE-SUSPECT.
-           DISPLAY "  " TRIM(WS-SU-NAME(WS-I)) " "
-               TRIM(WS-SU-SURNAME(WS-I))
+      *> ============================================================
+      *> TOOL-GET-POWER-PLANTS: Return plants JSON
+      *> ============================================================
+       TOOL-GET-POWER-PLANTS.
+           MOVE SPACES TO WS-TOOL-RESULT
+           MOVE 1 TO WS-PTR
+           STRING "[" DELIMITED SIZE
+               INTO WS-TOOL-RESULT
+               WITH POINTER WS-PTR
+           END-STRING
 
-      *>   Build location request JSON in memory
+           PERFORM VARYING WS-I FROM 1 BY 1
+               UNTIL WS-I > WS-PLANT-CT
+
+               IF WS-I > 1
+                   STRING "," DELIMITED SIZE
+                       INTO WS-TOOL-RESULT
+                       WITH POINTER WS-PTR
+                   END-STRING
+               END-IF
+
+               STRING
+                   "{" WS-QT "city" WS-QT ":"
+                   WS-QT
+                   TRIM(WS-PL-CITY(WS-I))
+                   WS-QT ","
+                   WS-QT "code" WS-QT ":"
+                   WS-QT
+                   TRIM(WS-PL-CODE(WS-I))
+                   WS-QT "}"
+                   DELIMITED SIZE
+                   INTO WS-TOOL-RESULT
+                   WITH POINTER WS-PTR
+               END-STRING
+           END-PERFORM
+
+           STRING "]" DELIMITED SIZE
+               INTO WS-TOOL-RESULT
+               WITH POINTER WS-PTR
+           END-STRING
+           COMPUTE WS-TOOL-RESULT-LEN =
+               WS-PTR - 1
+           .
+
+      *> ============================================================
+      *> TOOL-GET-CLOSEST: The KEY tool. Does ALL work:
+      *>  - Fetches GPS for every suspect (Hub API)
+      *>  - Computes haversine vs every plant (geocoded)
+      *>  - Returns summary with CLOSEST match
+      *> ============================================================
+       TOOL-GET-CLOSEST.
+           DISPLAY "  == Computing closest =="
+           MOVE "N" TO WS-BEST-FOUND
+           MOVE +99999 TO WS-BEST-DIST
+           MOVE SPACES TO WS-SUMMARY-BUF
+           MOVE 1 TO WS-SUMMARY-PTR
+
+           PERFORM VARYING WS-I FROM 1 BY 1
+               UNTIL WS-I > WS-SUSP-CT
+
+               DISPLAY "    Suspect "
+                   TRIM(WS-SU-NAME(WS-I)) " "
+                   TRIM(WS-SU-SURNAME(WS-I))
+
+      *>       Fetch locations for this suspect
+               PERFORM FETCH-SUSPECT-LOCS
+
+      *>       If no locations, skip
+               IF WS-LOC-JLEN = 0
+                   DISPLAY "      No locations"
+                   STRING
+                       TRIM(WS-SU-NAME(WS-I))
+                       " "
+                       TRIM(WS-SU-SURNAME(WS-I))
+                       " | no locations"
+                       WS-NL
+                       DELIMITED SIZE
+                       INTO WS-SUMMARY-BUF
+                       WITH POINTER
+                           WS-SUMMARY-PTR
+                   END-STRING
+               ELSE
+      *>           Parse locations array and match
+                   PERFORM MATCH-SUSPECT-PLANTS
+               END-IF
+           END-PERFORM
+
+      *>   Build tool result
+           MOVE SPACES TO WS-TOOL-RESULT
+           MOVE 1 TO WS-PTR
+
+           IF WS-BEST-FOUND = "Y"
+               MOVE WS-BEST-DIST TO WS-DISP-DIST
+               STRING
+                   "CLOSEST: name="
+                   TRIM(WS-BEST-NAME)
+                   " surname="
+                   TRIM(WS-BEST-SURNAME)
+                   " birthYear="
+                   WS-BEST-BYEAR
+                   " distance="
+                   TRIM(WS-DISP-DIST)
+                   "km plant="
+                   TRIM(WS-BEST-CITY)
+                   " plantCode="
+                   TRIM(WS-BEST-CODE)
+                   WS-NL WS-NL
+                   "All results:" WS-NL
+                   DELIMITED SIZE
+                   INTO WS-TOOL-RESULT
+                   WITH POINTER WS-PTR
+               END-STRING
+           ELSE
+               STRING
+                   "NO MATCH FOUND" WS-NL
+                   WS-NL
+                   "All results:" WS-NL
+                   DELIMITED SIZE
+                   INTO WS-TOOL-RESULT
+                   WITH POINTER WS-PTR
+               END-STRING
+           END-IF
+
+      *>   Append summary
+           COMPUTE WS-K = WS-SUMMARY-PTR - 1
+           IF WS-K > 0
+               MOVE WS-SUMMARY-BUF(1:WS-K)
+                   TO WS-TOOL-RESULT(WS-PTR:WS-K)
+               ADD WS-K TO WS-PTR
+           END-IF
+
+           COMPUTE WS-TOOL-RESULT-LEN =
+               WS-PTR - 1
+
+           DISPLAY "  == Result: "
+               WS-TOOL-RESULT(
+                   1:WS-TOOL-RESULT-LEN)
+           .
+
+      *> ============================================================
+      *> FETCH-SUSPECT-LOCS: Fetch GPS locs for suspect WS-I
+      *> Result in WS-LOC-JBUF / WS-LOC-JLEN
+      *> ============================================================
+       FETCH-SUSPECT-LOCS.
+           MOVE SPACES TO WS-LOC-JBUF
+           MOVE 0 TO WS-LOC-JLEN
+
+      *>   Build request body
+           MOVE TRIM(WS-SU-NAME(WS-I))
+               TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
+           MOVE WS-ESC-OUT TO WS-TMP2
+           MOVE WS-ESC-OLEN TO WS-K
+
            INITIALIZE WS-TMP
            STRING "{" WS-QT "apikey" WS-QT ":"
                WS-QT TRIM(WS-HUB-KEY) WS-QT ","
                WS-QT "name" WS-QT ":"
-               WS-QT TRIM(WS-SU-NAME(WS-I)) WS-QT ","
-               WS-QT "surname" WS-QT ":"
-               WS-QT TRIM(WS-SU-SURNAME(WS-I)) WS-QT "}"
+               WS-QT WS-TMP2(1:WS-K) WS-QT ","
                DELIMITED SIZE INTO WS-TMP
            END-STRING
 
-      *>   Write request body to file and POST via curl binary
+           MOVE TRIM(WS-SU-SURNAME(WS-I))
+               TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
+
+           MOVE SPACES TO WS-TMP2
+           STRING TRIM(WS-TMP)
+               WS-QT "surname" WS-QT ":"
+               WS-QT WS-ESC-OUT(1:WS-ESC-OLEN)
+               WS-QT "}"
+               DELIMITED SIZE INTO WS-TMP2
+           END-STRING
+           MOVE WS-TMP2 TO WS-TMP
+
+      *>   POST with retry
+           MOVE 0 TO WS-RETRY-CT
+           PERFORM UNTIL WS-RETRY-CT >= 5
+               PERFORM WRITE-REQ-BODY
+               INITIALIZE WS-CMD
+               STRING
+                   "curl -s -o locs.json"
+                   " -X POST "
+                   TRIM(WS-LOCATION-URL)
+                   " -H " WS-QT
+                   "Content-Type: "
+                   "application/json" WS-QT
+                   " -d @request_body.tmp"
+                   DELIMITED SIZE INTO WS-CMD
+               END-STRING
+               CALL "SYSTEM" USING WS-CMD
+
+               MOVE "locs.json"
+                   TO WS-WORK-PATH
+               PERFORM READ-JSON-FILE
+               MOVE "work.tmp" TO WS-WORK-PATH
+
+      *>       Check for valid location data
+               IF WS-JLEN > 0
+                   MOVE 0 TO WS-TALLY-CNT
+                   INSPECT WS-JBUF(1:WS-JLEN)
+                       TALLYING WS-TALLY-CNT
+                       FOR ALL "latitude"
+                   IF WS-TALLY-CNT > 0
+                       MOVE WS-JBUF(1:WS-JLEN)
+                           TO WS-LOC-JBUF
+                       MOVE WS-JLEN
+                           TO WS-LOC-JLEN
+                       EXIT PERFORM
+                   END-IF
+      *>           Empty array [] is valid
+                   IF WS-JBUF(1:2) = "[]"
+                       MOVE WS-JBUF(1:WS-JLEN)
+                           TO WS-LOC-JBUF
+                       MOVE WS-JLEN
+                           TO WS-LOC-JLEN
+                       EXIT PERFORM
+                   END-IF
+               END-IF
+
+               ADD 1 TO WS-RETRY-CT
+               IF WS-RETRY-CT < 5
+                   DISPLAY "      Retry "
+                       WS-RETRY-CT " locs..."
+                   CALL "C$SLEEP" USING 10
+               END-IF
+           END-PERFORM
+           .
+
+      *> ============================================================
+      *> MATCH-SUSPECT-PLANTS: Parse location array,
+      *> compute distance vs each plant, track best
+      *> Uses WS-LOC-JBUF, updates WS-BEST-*
+      *> ============================================================
+       MATCH-SUSPECT-PLANTS.
+           MOVE +99999 TO WS-SU-BEST-DIST
+           MOVE SPACES TO WS-SU-BEST-CITY
+           MOVE SPACES TO WS-SU-BEST-CODE
+           MOVE "N" TO WS-SU-HAS-MATCH
+
+      *>   Save main JBUF, work with LOC buf
+           MOVE WS-JBUF TO WS-JBUF-SAVE
+           MOVE WS-JLEN TO WS-JLEN-SAVE
+           MOVE WS-LOC-JBUF TO WS-JBUF
+           MOVE WS-LOC-JLEN TO WS-JLEN
+
+      *>   Find the array
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-ARRAY
+
+           IF WS-ARR-START = 0
+               MOVE WS-JBUF-SAVE TO WS-JBUF
+               MOVE WS-JLEN-SAVE TO WS-JLEN
+               STRING
+                   TRIM(WS-SU-NAME(WS-I))
+                   " "
+                   TRIM(WS-SU-SURNAME(WS-I))
+                   " | no valid locations"
+                   WS-NL
+                   DELIMITED SIZE
+                   INTO WS-SUMMARY-BUF
+                   WITH POINTER WS-SUMMARY-PTR
+               END-STRING
+               EXIT PARAGRAPH
+           END-IF
+
+      *>   Save arr bounds, restore main buf
+           MOVE WS-ARR-START TO WS-LOC-ARR-START
+           MOVE WS-ARR-END TO WS-LOC-ARR-END
+           MOVE WS-ARR-START TO WS-LOC-SCAN
+
+      *>   Iterate location objects
+           PERFORM UNTIL WS-LOC-SCAN
+               >= WS-LOC-ARR-END
+
+      *>       Find next { in LOC buf
+               MOVE 0 TO WS-LOC-OBJ-START
+               PERFORM UNTIL WS-LOC-SCAN
+                   > WS-LOC-ARR-END
+                   OR WS-LOC-OBJ-START > 0
+                   IF WS-LOC-JBUF(
+                       WS-LOC-SCAN:1) = "{"
+                       MOVE WS-LOC-SCAN
+                           TO WS-LOC-OBJ-START
+                   END-IF
+                   ADD 1 TO WS-LOC-SCAN
+               END-PERFORM
+
+               IF WS-LOC-OBJ-START = 0
+                   EXIT PERFORM
+               END-IF
+
+      *>       Find matching }
+               MOVE 1 TO WS-LOC-DEPTH
+               PERFORM UNTIL WS-LOC-SCAN
+                   > WS-LOC-ARR-END
+                   OR WS-LOC-DEPTH = 0
+                   IF WS-LOC-JBUF(
+                       WS-LOC-SCAN:1) = "{"
+                       ADD 1 TO WS-LOC-DEPTH
+                   END-IF
+                   IF WS-LOC-JBUF(
+                       WS-LOC-SCAN:1) = "}"
+                       SUBTRACT 1
+                           FROM WS-LOC-DEPTH
+                   END-IF
+                   ADD 1 TO WS-LOC-SCAN
+               END-PERFORM
+               COMPUTE WS-LOC-OBJ-END =
+                   WS-LOC-SCAN - 1
+
+      *>       Extract lat/lon from this obj
+               COMPUTE WS-K = WS-LOC-OBJ-END
+                   - WS-LOC-OBJ-START + 1
+               IF WS-K > 500
+                   MOVE 500 TO WS-K
+               END-IF
+               MOVE WS-LOC-JBUF(
+                   WS-LOC-OBJ-START:WS-K)
+                   TO WS-LOC-OBJ-BUF
+
+      *>       Parse lat/lon using JBUF
+               MOVE WS-LOC-OBJ-BUF TO WS-JBUF
+               MOVE WS-K TO WS-JLEN
+
+               MOVE "latitude" TO WS-KEY-SEARCH
+               MOVE 1 TO WS-JPOS
+               PERFORM FIND-JSON-VAL
+               IF TRIM(WS-JVAL) = SPACES
+                   MOVE WS-LOC-JBUF TO WS-JBUF
+                   MOVE WS-LOC-JLEN TO WS-JLEN
+                   EXIT PERFORM
+               END-IF
+               COMPUTE WS-LOC-LAT =
+                   NUMVAL(TRIM(WS-JVAL))
+
+               MOVE "longitude"
+                   TO WS-KEY-SEARCH
+               MOVE 1 TO WS-JPOS
+               PERFORM FIND-JSON-VAL
+               COMPUTE WS-LOC-LON =
+                   NUMVAL(TRIM(WS-JVAL))
+
+      *>       Restore LOC buf for continued
+      *>       scanning
+               MOVE WS-LOC-JBUF TO WS-JBUF
+               MOVE WS-LOC-JLEN TO WS-JLEN
+
+      *>       Compare vs each plant
+               PERFORM VARYING WS-J FROM 1 BY 1
+                   UNTIL WS-J > WS-PLANT-CT
+                   MOVE WS-LOC-LAT
+                       TO WS-H-LAT1
+                   MOVE WS-LOC-LON
+                       TO WS-H-LON1
+                   MOVE WS-PL-LAT(WS-J)
+                       TO WS-H-LAT2
+                   MOVE WS-PL-LON(WS-J)
+                       TO WS-H-LON2
+                   PERFORM HAVERSINE
+
+                   IF WS-H-DIST < 20
+                   AND WS-H-DIST
+                       < WS-SU-BEST-DIST
+                       MOVE WS-H-DIST
+                           TO WS-SU-BEST-DIST
+                       MOVE WS-PL-CITY(WS-J)
+                           TO WS-SU-BEST-CITY
+                       MOVE WS-PL-CODE(WS-J)
+                           TO WS-SU-BEST-CODE
+                       MOVE "Y"
+                           TO WS-SU-HAS-MATCH
+                   END-IF
+
+      *>           Track global best
+                   IF WS-H-DIST < 20
+                   AND WS-H-DIST < WS-BEST-DIST
+                       MOVE WS-H-DIST
+                           TO WS-BEST-DIST
+                       MOVE WS-SU-NAME(WS-I)
+                           TO WS-BEST-NAME
+                       MOVE WS-SU-SURNAME(WS-I)
+                           TO WS-BEST-SURNAME
+                       MOVE WS-SU-BYEAR(WS-I)
+                           TO WS-BEST-BYEAR
+                       MOVE WS-PL-CITY(WS-J)
+                           TO WS-BEST-CITY
+                       MOVE WS-PL-CODE(WS-J)
+                           TO WS-BEST-CODE
+                       MOVE "Y"
+                           TO WS-BEST-FOUND
+                   END-IF
+               END-PERFORM
+           END-PERFORM
+
+      *>   Restore main JBUF
+           MOVE WS-JBUF-SAVE TO WS-JBUF
+           MOVE WS-JLEN-SAVE TO WS-JLEN
+
+      *>   Add to summary
+           IF WS-SU-HAS-MATCH = "Y"
+               MOVE WS-SU-BEST-DIST
+                   TO WS-DISP-DIST
+               STRING
+                   TRIM(WS-SU-NAME(WS-I))
+                   " "
+                   TRIM(WS-SU-SURNAME(WS-I))
+                   " | "
+                   TRIM(WS-SU-BEST-CITY)
+                   " | "
+                   TRIM(WS-DISP-DIST)
+                   "km | "
+                   TRIM(WS-SU-BEST-CODE)
+                   WS-NL
+                   DELIMITED SIZE
+                   INTO WS-SUMMARY-BUF
+                   WITH POINTER WS-SUMMARY-PTR
+               END-STRING
+               DISPLAY "      MATCH "
+                   TRIM(WS-SU-BEST-CITY)
+                   " " TRIM(WS-DISP-DIST) "km"
+           ELSE
+               STRING
+                   TRIM(WS-SU-NAME(WS-I))
+                   " "
+                   TRIM(WS-SU-SURNAME(WS-I))
+                   " | no match within 20km"
+                   WS-NL
+                   DELIMITED SIZE
+                   INTO WS-SUMMARY-BUF
+                   WITH POINTER WS-SUMMARY-PTR
+               END-STRING
+               DISPLAY "      No match"
+           END-IF
+           .
+
+      *> ============================================================
+      *> TOOL-GET-ACCESS-LEVEL: Call Hub /api/accesslevel
+      *> ============================================================
+       TOOL-GET-ACCESS-LEVEL.
+           MOVE WS-JBUF TO WS-JBUF-SAVE
+           MOVE WS-JLEN TO WS-JLEN-SAVE
+           MOVE WS-TOOL-ARGS TO WS-JBUF
+           MOVE LENGTH(TRIM(WS-TOOL-ARGS))
+               TO WS-JLEN
+
+           MOVE "name" TO WS-KEY-SEARCH
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+           MOVE TRIM(WS-JVAL) TO WS-TA-NAME
+
+           MOVE "surname" TO WS-KEY-SEARCH
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+           MOVE TRIM(WS-JVAL)
+               TO WS-TA-SURNAME
+
+           MOVE "birth_year" TO WS-KEY-SEARCH
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+           COMPUTE WS-TA-BYEAR =
+               NUMVAL(TRIM(WS-JVAL))
+
+           MOVE WS-JBUF-SAVE TO WS-JBUF
+           MOVE WS-JLEN-SAVE TO WS-JLEN
+
+           DISPLAY "    -> access for "
+               TRIM(WS-TA-NAME) " "
+               TRIM(WS-TA-SURNAME)
+               " born " WS-TA-BYEAR
+
+      *>   Build request body
+           MOVE TRIM(WS-TA-NAME)
+               TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
+           MOVE WS-ESC-OUT TO WS-TMP2
+           MOVE WS-ESC-OLEN TO WS-K
+
+           INITIALIZE WS-TMP
+           STRING "{" WS-QT "apikey" WS-QT ":"
+               WS-QT TRIM(WS-HUB-KEY) WS-QT ","
+               WS-QT "name" WS-QT ":"
+               WS-QT WS-TMP2(1:WS-K) WS-QT ","
+               DELIMITED SIZE INTO WS-TMP
+           END-STRING
+
+           MOVE TRIM(WS-TA-SURNAME)
+               TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
+
+           MOVE SPACES TO WS-TMP2
+           STRING TRIM(WS-TMP)
+               WS-QT "surname" WS-QT ":"
+               WS-QT WS-ESC-OUT(1:WS-ESC-OLEN)
+               WS-QT ","
+               WS-QT "birthYear" WS-QT ":"
+               WS-TA-BYEAR "}"
+               DELIMITED SIZE INTO WS-TMP2
+           END-STRING
+           MOVE WS-TMP2 TO WS-TMP
+
+      *>   POST with retry
+           MOVE 0 TO WS-RETRY-CT
+           PERFORM UNTIL WS-RETRY-CT >= 5
+               PERFORM WRITE-REQ-BODY
+               INITIALIZE WS-CMD
+               STRING
+                   "curl -s -o access.json"
+                   " -X POST "
+                   TRIM(WS-ACCESS-URL)
+                   " -H " WS-QT
+                   "Content-Type: "
+                   "application/json" WS-QT
+                   " -d @request_body.tmp"
+                   DELIMITED SIZE INTO WS-CMD
+               END-STRING
+               CALL "SYSTEM" USING WS-CMD
+
+               MOVE "access.json"
+                   TO WS-WORK-PATH
+               PERFORM READ-JSON-FILE
+               MOVE "work.tmp" TO WS-WORK-PATH
+
+               IF WS-JLEN > 0
+                   MOVE 0 TO WS-TALLY-CNT
+                   INSPECT WS-JBUF(1:WS-JLEN)
+                       TALLYING WS-TALLY-CNT
+                       FOR ALL "ccessLevel"
+                   IF WS-TALLY-CNT > 0
+                       MOVE WS-JBUF(1:WS-JLEN)
+                           TO WS-TOOL-RESULT
+                       MOVE WS-JLEN
+                           TO WS-TOOL-RESULT-LEN
+                       EXIT PERFORM
+                   END-IF
+               END-IF
+
+               ADD 1 TO WS-RETRY-CT
+               IF WS-RETRY-CT < 5
+                   DISPLAY "      Retry "
+                       WS-RETRY-CT " access..."
+                   CALL "C$SLEEP" USING 10
+               END-IF
+           END-PERFORM
+
+           IF WS-TOOL-RESULT-LEN = 0
+               MOVE '{"error":"no access data"}'
+                   TO WS-TOOL-RESULT
+               MOVE 26 TO WS-TOOL-RESULT-LEN
+           END-IF
+           .
+
+      *> ============================================================
+      *> TOOL-SUBMIT-ANSWER: Submit to Hub /verify
+      *> ============================================================
+       TOOL-SUBMIT-ANSWER.
+           MOVE WS-JBUF TO WS-JBUF-SAVE
+           MOVE WS-JLEN TO WS-JLEN-SAVE
+           MOVE WS-TOOL-ARGS TO WS-JBUF
+           MOVE LENGTH(TRIM(WS-TOOL-ARGS))
+               TO WS-JLEN
+
+           MOVE "name" TO WS-KEY-SEARCH
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+           MOVE TRIM(WS-JVAL) TO WS-TA-NAME
+
+           MOVE "surname" TO WS-KEY-SEARCH
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+           MOVE TRIM(WS-JVAL)
+               TO WS-TA-SURNAME
+
+           MOVE "access_level" TO WS-KEY-SEARCH
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+           MOVE TRIM(WS-JVAL) TO WS-NUM-STR
+
+           MOVE "power_plant" TO WS-KEY-SEARCH
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+           MOVE TRIM(WS-JVAL) TO WS-TA-ANSWER
+
+           MOVE WS-JBUF-SAVE TO WS-JBUF
+           MOVE WS-JLEN-SAVE TO WS-JLEN
+
+      *>   Build submit payload
+           MOVE TRIM(WS-TA-NAME)
+               TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
+           MOVE WS-ESC-OUT TO WS-AG-CONTENT
+           MOVE WS-ESC-OLEN TO WS-K
+
+           MOVE SPACES TO WS-TOOL-RESULT
+           MOVE 1 TO WS-PTR
+           STRING "{" WS-QT "apikey" WS-QT ":"
+               WS-QT TRIM(WS-HUB-KEY) WS-QT ","
+               WS-QT "task" WS-QT ":"
+               WS-QT "findhim" WS-QT ","
+               WS-QT "answer" WS-QT ":{"
+               WS-QT "name" WS-QT ":"
+               WS-QT WS-AG-CONTENT(1:WS-K)
+               WS-QT ","
+               DELIMITED SIZE
+               INTO WS-TOOL-RESULT
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Escape surname
+           MOVE TRIM(WS-TA-SURNAME)
+               TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
+
+           STRING
+               WS-QT "surname" WS-QT ":"
+               WS-QT WS-ESC-OUT(1:WS-ESC-OLEN)
+               WS-QT ","
+               WS-QT "accessLevel" WS-QT ":"
+               TRIM(WS-NUM-STR) ","
+               WS-QT "powerPlant" WS-QT ":"
+               WS-QT TRIM(WS-TA-ANSWER) WS-QT
+               "}}"
+               DELIMITED SIZE
+               INTO WS-TOOL-RESULT
+               WITH POINTER WS-PTR
+           END-STRING
+
+           COMPUTE WS-TOOL-RESULT-LEN =
+               WS-PTR - 1
+
+           DISPLAY "  Submit: "
+               WS-TOOL-RESULT(
+                   1:WS-TOOL-RESULT-LEN)
+
+      *>   Write and POST
+           MOVE WS-TOOL-RESULT(
+               1:WS-TOOL-RESULT-LEN)
+               TO WS-TMP
            PERFORM WRITE-REQ-BODY
+
            INITIALIZE WS-CMD
-           STRING "curl -s -o locs.json -X POST "
-               TRIM(WS-LOCATION-URL)
-               " -H " WS-QT "Content-Type: application/json"
-               WS-QT
+           STRING
+               "curl -s -o submit.json"
+               " -X POST "
+               TRIM(WS-VERIFY-URL)
+               " -H " WS-QT
+               "Content-Type: "
+               "application/json" WS-QT
                " -d @request_body.tmp"
                DELIMITED SIZE INTO WS-CMD
            END-STRING
            CALL "SYSTEM" USING WS-CMD
 
-      *>   Parse locations response (array of objects)
-           MOVE "locs.json" TO WS-WORK-PATH
+      *>   Read response
+           MOVE "submit.json" TO WS-WORK-PATH
            PERFORM READ-JSON-FILE
            MOVE "work.tmp" TO WS-WORK-PATH
+           DISPLAY "  Response: "
+               TRIM(WS-JBUF)
 
-           IF WS-JLEN = 0
-               DISPLAY "    brak lokalizacji"
-               EXIT PARAGRAPH
+           MOVE SPACES TO WS-TOOL-RESULT
+           MOVE TRIM(WS-JBUF)
+               TO WS-TOOL-RESULT
+           MOVE LENGTH(TRIM(WS-JBUF))
+               TO WS-TOOL-RESULT-LEN
+
+      *>   Check for flag
+           MOVE 0 TO WS-TALLY-CNT
+           INSPECT WS-JBUF(1:WS-JLEN)
+               TALLYING WS-TALLY-CNT
+               FOR ALL "FLG:"
+           IF WS-TALLY-CNT > 0
+               DISPLAY "  >>> FLAG FOUND <<<"
+               MOVE "Y" TO WS-AG-DONE
            END-IF
-
-      *>   Find the array (might be top-level)
-           MOVE 1 TO WS-JPOS
-           PERFORM FIND-JSON-ARRAY
-
-           IF WS-ARR-START = 0
-               DISPLAY "    brak tablicy lokalizacji"
-               EXIT PARAGRAPH
-           END-IF
-
-      *>   Iterate location objects
-           MOVE 0 TO WS-K
-           MOVE WS-ARR-START TO WS-SCAN-POS
-           PERFORM UNTIL WS-SCAN-POS >= WS-ARR-END
-               PERFORM NEXT-JSON-OBJ
-               IF WS-OBJ-START = 0
-                   EXIT PERFORM
-               END-IF
-               ADD 1 TO WS-K
-
-      *>       Extract lat/lon from this object
-               MOVE WS-JBUF TO WS-JBUF-SAVE
-               MOVE WS-JLEN TO WS-JLEN-SAVE
-               MOVE WS-OBJ-BUF TO WS-JBUF
-               MOVE LENGTH(TRIM(WS-OBJ-BUF)) TO WS-JLEN
-
-               MOVE "latitude" TO WS-KEY-SEARCH
-               MOVE 1 TO WS-JPOS
-               PERFORM FIND-JSON-VAL
-               COMPUTE WS-H-LAT1 = NUMVAL(TRIM(WS-JVAL))
-
-               MOVE "longitude" TO WS-KEY-SEARCH
-               MOVE 1 TO WS-JPOS
-               PERFORM FIND-JSON-VAL
-               COMPUTE WS-H-LON1 = NUMVAL(TRIM(WS-JVAL))
-
-               MOVE WS-JBUF-SAVE TO WS-JBUF
-               MOVE WS-JLEN-SAVE TO WS-JLEN
-
-      *>       Check distance to each plant
-               PERFORM VARYING WS-J FROM 1 BY 1
-                   UNTIL WS-J > WS-PLANT-CT
-                   MOVE WS-PL-LAT(WS-J) TO WS-H-LAT2
-                   MOVE WS-PL-LON(WS-J) TO WS-H-LON2
-                   PERFORM HAVERSINE
-                   IF WS-H-DIST < 20
-                   AND WS-H-DIST < WS-B-DIST
-                       MOVE WS-H-DIST TO WS-B-DIST
-                       MOVE WS-SU-NAME(WS-I) TO WS-B-NAME
-                       MOVE WS-SU-SURNAME(WS-I) TO
-                           WS-B-SURNAME
-                       MOVE WS-SU-BYEAR(WS-I) TO WS-B-BYEAR
-                       MOVE WS-PL-CODE(WS-J) TO WS-B-PCODE
-                       MOVE WS-PL-CITY(WS-J) TO WS-B-PCITY
-                       MOVE "Y" TO WS-B-FOUND
-                       DISPLAY "    MATCH! "
-                           TRIM(WS-PL-CITY(WS-J))
-                           " " WS-H-DIST "km"
-                   END-IF
-               END-PERFORM
-           END-PERFORM
-
-           DISPLAY "    " WS-K " lokalizacji"
            .
 
       *> ============================================================
-      *> HAVERSINE
+      *> APPEND-TOOL-EXCHANGE
+      *> ============================================================
+       APPEND-TOOL-EXCHANGE.
+           SUBTRACT 1 FROM WS-CONV-PTR
+
+      *>   Escape tool args
+           MOVE TRIM(WS-TOOL-ARGS) TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
+
+           STRING ","
+               "{" WS-QT "role" WS-QT ":"
+               WS-QT "assistant" WS-QT ","
+               WS-QT "content" WS-QT ":null,"
+               WS-QT "tool_calls" WS-QT ":["
+               "{" WS-QT "id" WS-QT ":"
+               WS-QT TRIM(WS-TOOL-CALL-ID)
+               WS-QT ","
+               WS-QT "type" WS-QT ":"
+               WS-QT "function" WS-QT ","
+               WS-QT "function" WS-QT ":{"
+               WS-QT "name" WS-QT ":"
+               WS-QT TRIM(WS-TOOL-NAME)
+               WS-QT ","
+               WS-QT "arguments" WS-QT ":"
+               WS-QT
+               WS-ESC-OUT(1:WS-ESC-OLEN)
+               WS-QT
+               "}}]},"
+               DELIMITED SIZE
+               INTO WS-CONV-BUF
+               WITH POINTER WS-CONV-PTR
+           END-STRING
+
+      *>   Escape tool result
+           MOVE WS-TOOL-RESULT(
+               1:WS-TOOL-RESULT-LEN)
+               TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
+
+           STRING
+               "{" WS-QT "role" WS-QT ":"
+               WS-QT "tool" WS-QT ","
+               WS-QT "tool_call_id" WS-QT ":"
+               WS-QT TRIM(WS-TOOL-CALL-ID)
+               WS-QT ","
+               WS-QT "content" WS-QT ":"
+               WS-QT
+               WS-ESC-OUT(1:WS-ESC-OLEN)
+               WS-QT "}]"
+               DELIMITED SIZE
+               INTO WS-CONV-BUF
+               WITH POINTER WS-CONV-PTR
+           END-STRING
+           .
+
+      *> ============================================================
+      *> APPEND-TEXT-AND-NUDGE
+      *> ============================================================
+       APPEND-TEXT-AND-NUDGE.
+           SUBTRACT 1 FROM WS-CONV-PTR
+
+           STRING ","
+               "{" WS-QT "role" WS-QT ":"
+               WS-QT "assistant" WS-QT ","
+               WS-QT "content" WS-QT ":"
+               WS-QT "OK" WS-QT "},"
+               "{" WS-QT "role" WS-QT ":"
+               WS-QT "user" WS-QT ","
+               WS-QT "content" WS-QT ":"
+               WS-QT "Call the next tool now."
+               WS-QT "}]"
+               DELIMITED SIZE
+               INTO WS-CONV-BUF
+               WITH POINTER WS-CONV-PTR
+           END-STRING
+           .
+
+      *> ============================================================
+      *> PARSE-TOOL-CALL
+      *> ============================================================
+       PARSE-TOOL-CALL.
+           MOVE SPACES TO WS-TOOL-NAME
+           MOVE SPACES TO WS-TOOL-CALL-ID
+           MOVE SPACES TO WS-TOOL-ARGS
+
+           MOVE SPACES TO WS-TMP2
+           STRING WS-QT "tool_calls" WS-QT
+               DELIMITED SIZE INTO WS-TMP2
+           END-STRING
+
+           MOVE 0 TO WS-KEY-POS
+           PERFORM VARYING WS-FJV-POS
+               FROM 1 BY 1
+               UNTIL WS-FJV-POS > WS-JLEN
+               OR WS-KEY-POS > 0
+               IF WS-JBUF(WS-FJV-POS:
+                   LENGTH(TRIM(WS-TMP2)))
+                   = TRIM(WS-TMP2)
+                   MOVE WS-FJV-POS
+                       TO WS-KEY-POS
+               END-IF
+           END-PERFORM
+
+           IF WS-KEY-POS = 0
+               EXIT PARAGRAPH
+           END-IF
+
+      *>   Extract id, name, arguments
+           MOVE "id" TO WS-KEY-SEARCH
+           MOVE WS-KEY-POS TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+           MOVE TRIM(WS-JVAL)
+               TO WS-TOOL-CALL-ID
+
+           MOVE "name" TO WS-KEY-SEARCH
+           PERFORM FIND-JSON-VAL
+           MOVE TRIM(WS-JVAL)
+               TO WS-TOOL-NAME
+
+           MOVE "arguments" TO WS-KEY-SEARCH
+           PERFORM FIND-JSON-VAL
+      *>   Unescape
+           MOVE WS-JVAL TO WS-ESC-IN
+           PERFORM JSON-UNESCAPE-STR
+           MOVE TRIM(WS-ESC-OUT)
+               TO WS-TOOL-ARGS
+           .
+
+      *> ============================================================
+      *> HAVERSINE: Distance between two GPS points
       *> ============================================================
        HAVERSINE.
            COMPUTE WS-H-DLAT =
-               (WS-H-LAT2 - WS-H-LAT1) * WS-RADF
+               (WS-H-LAT2 - WS-H-LAT1)
+               * WS-RADF
            COMPUTE WS-H-DLON =
-               (WS-H-LON2 - WS-H-LON1) * WS-RADF
+               (WS-H-LON2 - WS-H-LON1)
+               * WS-RADF
 
-           COMPUTE WS-H-SIN1 = SIN(WS-H-DLAT / 2)
-           COMPUTE WS-H-SIN1 = WS-H-SIN1 * WS-H-SIN1
+           COMPUTE WS-H-SIN1 =
+               SIN(WS-H-DLAT / 2)
+           COMPUTE WS-H-SIN1 =
+               WS-H-SIN1 * WS-H-SIN1
 
-           COMPUTE WS-H-SIN2 = SIN(WS-H-DLON / 2)
-           COMPUTE WS-H-SIN2 = WS-H-SIN2 * WS-H-SIN2
+           COMPUTE WS-H-SIN2 =
+               SIN(WS-H-DLON / 2)
+           COMPUTE WS-H-SIN2 =
+               WS-H-SIN2 * WS-H-SIN2
 
            COMPUTE WS-H-COS1 =
                COS(WS-H-LAT1 * WS-RADF)
@@ -876,106 +2206,9 @@
                COS(WS-H-LAT2 * WS-RADF)
 
            COMPUTE WS-H-A = WS-H-SIN1 +
-               WS-H-COS1 * WS-H-COS2 * WS-H-SIN2
+               WS-H-COS1 * WS-H-COS2
+               * WS-H-SIN2
 
            COMPUTE WS-H-DIST =
                6371 * 2 * ASIN(SQRT(WS-H-A))
-           .
-
-      *> ============================================================
-      *> GET ACCESS LEVEL
-      *> ============================================================
-       GET-ACCESS-LEVEL.
-           DISPLAY " "
-           DISPLAY "--- Krok 4: Poziom dostepu ---"
-
-      *>   Build request JSON in memory
-           INITIALIZE WS-TMP
-           STRING "{" WS-QT "apikey" WS-QT ":"
-               WS-QT TRIM(WS-HUB-KEY) WS-QT ","
-               WS-QT "name" WS-QT ":"
-               WS-QT TRIM(WS-B-NAME) WS-QT ","
-               WS-QT "surname" WS-QT ":"
-               WS-QT TRIM(WS-B-SURNAME) WS-QT ","
-               WS-QT "birthYear" WS-QT ":"
-               WS-B-BYEAR "}"
-               DELIMITED SIZE INTO WS-TMP
-           END-STRING
-
-      *>   Write request body to file and POST via curl binary
-           PERFORM WRITE-REQ-BODY
-           INITIALIZE WS-CMD
-           STRING "curl -s -o access.json -X POST "
-               TRIM(WS-ACCESS-URL)
-               " -H " WS-QT "Content-Type: application/json"
-               WS-QT
-               " -d @request_body.tmp"
-               DELIMITED SIZE INTO WS-CMD
-           END-STRING
-           CALL "SYSTEM" USING WS-CMD
-
-      *>   Parse response
-           MOVE "access.json" TO WS-WORK-PATH
-           PERFORM READ-JSON-FILE
-           MOVE "work.tmp" TO WS-WORK-PATH
-
-           MOVE "accessLevel" TO WS-KEY-SEARCH
-           MOVE 1 TO WS-JPOS
-           PERFORM FIND-JSON-VAL
-           COMPUTE WS-B-ACCESS = NUMVAL(TRIM(WS-JVAL))
-           DISPLAY "  " TRIM(WS-B-NAME) " "
-               TRIM(WS-B-SURNAME)
-               " -> accessLevel: " WS-B-ACCESS
-           .
-
-      *> ============================================================
-      *> SUBMIT ANSWER
-      *> ============================================================
-       SUBMIT-ANSWER.
-           DISPLAY " "
-           DISPLAY "--- Krok 5: Wysylanie odpowiedzi ---"
-
-      *>   Format access level without leading zeros
-           MOVE WS-B-ACCESS TO WS-NUM-STR
-           INSPECT WS-NUM-STR REPLACING LEADING "0" BY " "
-
-           INITIALIZE WS-TMP
-           STRING "{" WS-QT "apikey" WS-QT ":"
-               WS-QT TRIM(WS-HUB-KEY) WS-QT ","
-               WS-QT "task" WS-QT ":"
-               WS-QT "findhim" WS-QT ","
-               WS-QT "answer" WS-QT ":{"
-               WS-QT "name" WS-QT ":"
-               WS-QT TRIM(WS-B-NAME) WS-QT ","
-               WS-QT "surname" WS-QT ":"
-               WS-QT TRIM(WS-B-SURNAME) WS-QT ","
-               WS-QT "accessLevel" WS-QT ":"
-               TRIM(WS-NUM-STR) ","
-               WS-QT "powerPlant" WS-QT ":"
-               WS-QT TRIM(WS-B-PCODE) WS-QT
-               "}}"
-               DELIMITED SIZE INTO WS-TMP
-           END-STRING
-
-           DISPLAY "  Payload: " TRIM(WS-TMP)
-
-      *>   Write request body to file and POST via curl binary
-           PERFORM WRITE-REQ-BODY
-           INITIALIZE WS-CMD
-           STRING "curl -s -o submit.json -X POST "
-               TRIM(WS-VERIFY-URL)
-               " -H " WS-QT "Content-Type: application/json"
-               WS-QT
-               " -d @request_body.tmp"
-               DELIMITED SIZE INTO WS-CMD
-           END-STRING
-           CALL "SYSTEM" USING WS-CMD
-
-           DISPLAY "  Wysylam..."
-
-      *>   Read response
-           MOVE "submit.json" TO WS-WORK-PATH
-           PERFORM READ-JSON-FILE
-           MOVE "work.tmp" TO WS-WORK-PATH
-           DISPLAY "  Odpowiedz: " TRIM(WS-JBUF)
            .

@@ -40,13 +40,15 @@
       *> -- System command --
        01  WS-CMD                  PIC X(4000).
 
-      *> -- Prompt template --
-       01  WS-PROMPT-TPL           PIC X(200) VALUE
-           "Reply only DNG or NEU."
-           & "DNG=weapon,explosive,drug,bomb,firearm,"
-           & "handgun,rifle,ammunition."
-           & "Reactor,fuel cassette=NEU."
-           & "Else NEU.".
+      *> -- Prompt template (use X"0A" for real newlines) --
+       01  WS-PROMPT-TPL           PIC X(300) VALUE
+           "Reply DNG or NEU only." & X"0A"
+           & "DNG if weapon,spear,bow,arrow,sword,"
+           & "explosive,mine,bomb,firearm,gun,"
+           & "pistol,rifle,ammunition,drug." & X"0A"
+           & "Reactor,fuel cassette=NEU." & X"0A"
+           & "Tools,parts,cables=NEU." & X"0A"
+           & "Else NEU." & X"0A".
 
       *> -- CSV parsing --
        01  WS-CSV-PATH             PIC X(100) VALUE
@@ -88,6 +90,12 @@
       *> -- Prompt building --
        01  WS-PROMPT               PIC X(1000).
 
+      *> -- JSON escape buffer --
+       01  WS-ESC-BUF              PIC X(2000).
+       01  WS-ESC-LEN              PIC 9(5).
+       01  WS-ESC-I                PIC 9(5).
+       01  WS-ESC-SRC-LEN          PIC 9(5).
+
       *> -- Retry --
        01  WS-MAX-RETRIES          PIC 9(2) VALUE 5.
        01  WS-ATTEMPT              PIC 9(2).
@@ -108,6 +116,11 @@
       *> -- Code value --
        01  WS-CODE-VAL             PIC X(20).
        01  WS-CODE-NUM             PIC S9(4).
+
+      *> -- Main retry --
+       01  WS-MAIN-ATTEMPT         PIC 9(2) VALUE 0.
+       01  WS-MAX-MAIN-RETRIES     PIC 9(2) VALUE 3.
+       01  WS-CLASS-ERROR          PIC X VALUE "N".
 
        PROCEDURE DIVISION.
        MAIN-PARA.
@@ -132,11 +145,28 @@
            END-STRING
 
            MOVE "N" TO WS-FLAG-FOUND
+           MOVE 0 TO WS-MAIN-ATTEMPT
 
            PERFORM STEP-1-FETCH-CSV
            PERFORM STEP-2-PARSE-CSV
-           PERFORM STEP-3-RESET-BUDGET
-           PERFORM STEP-4-CLASSIFY-ITEMS
+
+           PERFORM UNTIL WS-MAIN-ATTEMPT
+               >= WS-MAX-MAIN-RETRIES
+               OR WS-FLAG-FOUND = "Y"
+               ADD 1 TO WS-MAIN-ATTEMPT
+               MOVE "N" TO WS-CLASS-ERROR
+               DISPLAY " "
+               DISPLAY "=== Proba "
+                   WS-MAIN-ATTEMPT " ==="
+               PERFORM STEP-3-RESET-BUDGET
+               PERFORM STEP-4-CLASSIFY-ITEMS
+               IF WS-CLASS-ERROR = "Y"
+                   DISPLAY "  Blad - ponowna proba"
+                   MOVE 3 TO WS-SLEEP-SECS
+                   CALL "C$SLEEP"
+                       USING WS-SLEEP-SECS
+               END-IF
+           END-PERFORM
 
            IF WS-FLAG-FOUND NOT = "Y"
                DISPLAY " "
@@ -313,6 +343,7 @@
            PERFORM VARYING WS-IDX FROM 1 BY 1
                UNTIL WS-IDX > WS-ITEM-COUNT
                OR WS-FLAG-FOUND = "Y"
+               OR WS-CLASS-ERROR = "Y"
                PERFORM CLASSIFY-SINGLE-ITEM
            END-PERFORM
            .
@@ -329,6 +360,9 @@
                DELIMITED SIZE INTO WS-PROMPT
            END-STRING
 
+      *>   Escape prompt for safe JSON embedding
+           PERFORM ESCAPE-STRING-FOR-JSON
+
       *>   Build JSON payload
            INITIALIZE WS-PAYLOAD
            STRING
@@ -338,7 +372,8 @@
                WS-QT TRIM(WS-TASK-NAME) WS-QT ","
                WS-QT "answer" WS-QT ":{"
                WS-QT "prompt" WS-QT ":"
-               WS-QT TRIM(WS-PROMPT) WS-QT
+               WS-QT WS-ESC-BUF(1:WS-ESC-LEN)
+               WS-QT
                "}}"
                DELIMITED SIZE INTO WS-PAYLOAD
            END-STRING
@@ -430,8 +465,83 @@
            IF WS-CODE-VAL(1:1) = "-"
                DISPLAY "  BLAD: "
                    TRIM(WS-RESP-BUF)(1:300)
-               MOVE "Y" TO WS-FLAG-FOUND
+               MOVE "Y" TO WS-CLASS-ERROR
            END-IF
+           .
+
+      *> ============================================================
+      *> ESCAPE-STRING-FOR-JSON: Escape WS-PROMPT for JSON
+      *> Input:  WS-PROMPT
+      *> Output: WS-ESC-BUF, WS-ESC-LEN
+      *> ============================================================
+       ESCAPE-STRING-FOR-JSON.
+           MOVE SPACES TO WS-ESC-BUF
+           MOVE 0 TO WS-ESC-LEN
+           MOVE LENGTH(TRIM(WS-PROMPT))
+               TO WS-ESC-SRC-LEN
+
+           PERFORM VARYING WS-ESC-I
+               FROM 1 BY 1
+               UNTIL WS-ESC-I > WS-ESC-SRC-LEN
+               EVALUATE TRUE
+               WHEN WS-PROMPT(WS-ESC-I:1)
+                   = WS-QT
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE WS-QT
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+               WHEN WS-PROMPT(WS-ESC-I:1)
+                   = X"5C"
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+               WHEN WS-PROMPT(WS-ESC-I:1)
+                   = X"0A"
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE "n"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+               WHEN WS-PROMPT(WS-ESC-I:1)
+                   = X"0D"
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE "r"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+               WHEN WS-PROMPT(WS-ESC-I:1)
+                   = X"09"
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE "t"
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+               WHEN OTHER
+                   ADD 1 TO WS-ESC-LEN
+                   MOVE WS-PROMPT(
+                       WS-ESC-I:1)
+                       TO WS-ESC-BUF(
+                       WS-ESC-LEN:1)
+               END-EVALUATE
+           END-PERFORM
            .
 
       *> ============================================================

@@ -131,6 +131,13 @@
        01  WS-ANSWER-JSON          PIC X(8000).
        01  WS-TAG-JSON             PIC X(4000).
 
+      *> -- JSON escaping --
+       01  WS-ESC-INPUT            PIC X(500).
+       01  WS-ESC-OUTPUT           PIC X(1000).
+       01  WS-ESC-IN-LEN           PIC 9(4).
+       01  WS-ESC-OUT-LEN          PIC 9(4).
+       01  WS-ESC-I                PIC 9(4).
+
       *> -- Misc --
        01  WS-EOF-FLAG             PIC X(1) VALUE "N".
        01  WS-TRIMMED              PIC X(500).
@@ -387,6 +394,10 @@
                TRIM(WS-P-SURNAME(WS-IDX))
                " - job: " TRIM(WS-P-JOB(WS-IDX))
 
+      *>   Escape job for JSON
+           MOVE WS-P-JOB(WS-IDX) TO WS-ESC-INPUT
+           PERFORM ESCAPE-FOR-JSON
+
       *>   Build JSON request body in memory
            INITIALIZE WS-TAG-JSON
            STRING
@@ -402,7 +413,7 @@
                "{"
                WS-QT "role" WS-QT ":" WS-QT "user" WS-QT ","
                WS-QT "content" WS-QT ":" WS-QT
-               TRIM(WS-P-JOB(WS-IDX)) WS-QT
+               WS-ESC-OUTPUT(1:WS-ESC-OUT-LEN) WS-QT
                "}"
                "],"
                WS-QT "temperature" WS-QT ":0.2"
@@ -632,18 +643,58 @@
                INITIALIZE WS-TAG-JSON
                PERFORM BUILD-TAGS-ARRAY
 
+      *>       Escape name for JSON
+               MOVE WS-P-NAME(WS-PI)
+                   TO WS-ESC-INPUT
+               PERFORM ESCAPE-FOR-JSON
                STRING
                    "{"
                    WS-QT "name" WS-QT ":"
-                   WS-QT TRIM(WS-P-NAME(WS-PI)) WS-QT ","
+                   WS-QT
+                   WS-ESC-OUTPUT(
+                   1:WS-ESC-OUT-LEN)
+                   WS-QT ","
+                   DELIMITED SIZE
+                   INTO WS-JSON-ENTRY
+               END-STRING
+
+      *>       Escape surname for JSON
+               MOVE WS-P-SURNAME(WS-PI)
+                   TO WS-ESC-INPUT
+               PERFORM ESCAPE-FOR-JSON
+               STRING
+                   TRIM(WS-JSON-ENTRY)
                    WS-QT "surname" WS-QT ":"
-                   WS-QT TRIM(WS-P-SURNAME(WS-PI)) WS-QT ","
+                   WS-QT
+                   WS-ESC-OUTPUT(
+                   1:WS-ESC-OUT-LEN)
+                   WS-QT ","
+                   DELIMITED SIZE
+                   INTO WS-JSON-ENTRY
+               END-STRING
+
+               STRING
+                   TRIM(WS-JSON-ENTRY)
                    WS-QT "gender" WS-QT ":"
-                   WS-QT TRIM(WS-P-GENDER(WS-PI)) WS-QT ","
+                   WS-QT TRIM(WS-P-GENDER(WS-PI))
+                   WS-QT ","
                    WS-QT "born" WS-QT ":"
                    WS-P-BORN-YEAR(WS-PI) ","
+                   DELIMITED SIZE
+                   INTO WS-JSON-ENTRY
+               END-STRING
+
+      *>       Escape city for JSON
+               MOVE WS-P-BIRTHPLACE(WS-PI)
+                   TO WS-ESC-INPUT
+               PERFORM ESCAPE-FOR-JSON
+               STRING
+                   TRIM(WS-JSON-ENTRY)
                    WS-QT "city" WS-QT ":"
-                   WS-QT TRIM(WS-P-BIRTHPLACE(WS-PI)) WS-QT ","
+                   WS-QT
+                   WS-ESC-OUTPUT(
+                   1:WS-ESC-OUT-LEN)
+                   WS-QT ","
                    WS-QT "tags" WS-QT ":"
                    TRIM(WS-TAG-JSON)
                    "}"
@@ -706,6 +757,49 @@
            STRING TRIM(WS-TAG-JSON) "]"
                DELIMITED SIZE INTO WS-TAG-JSON
            END-STRING
+           .
+
+      *> -- Escape string for JSON embedding --
+      *> Input:  WS-ESC-INPUT
+      *> Output: WS-ESC-OUTPUT, WS-ESC-OUT-LEN
+       ESCAPE-FOR-JSON.
+           MOVE SPACES TO WS-ESC-OUTPUT
+           MOVE 0 TO WS-ESC-OUT-LEN
+           MOVE LENGTH(TRIM(WS-ESC-INPUT))
+               TO WS-ESC-IN-LEN
+
+           PERFORM VARYING WS-ESC-I
+               FROM 1 BY 1
+               UNTIL WS-ESC-I > WS-ESC-IN-LEN
+               EVALUATE TRUE
+               WHEN WS-ESC-INPUT(WS-ESC-I:1)
+                   = WS-QT
+                   ADD 1 TO WS-ESC-OUT-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-OUTPUT(
+                       WS-ESC-OUT-LEN:1)
+                   ADD 1 TO WS-ESC-OUT-LEN
+                   MOVE WS-QT
+                       TO WS-ESC-OUTPUT(
+                       WS-ESC-OUT-LEN:1)
+               WHEN WS-ESC-INPUT(WS-ESC-I:1)
+                   = X"5C"
+                   ADD 1 TO WS-ESC-OUT-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-OUTPUT(
+                       WS-ESC-OUT-LEN:1)
+                   ADD 1 TO WS-ESC-OUT-LEN
+                   MOVE X"5C"
+                       TO WS-ESC-OUTPUT(
+                       WS-ESC-OUT-LEN:1)
+               WHEN OTHER
+                   ADD 1 TO WS-ESC-OUT-LEN
+                   MOVE WS-ESC-INPUT(
+                       WS-ESC-I:1)
+                       TO WS-ESC-OUTPUT(
+                       WS-ESC-OUT-LEN:1)
+               END-EVALUATE
+           END-PERFORM
            .
 
       *> -- Send answer to verify endpoint --

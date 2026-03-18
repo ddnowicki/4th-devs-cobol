@@ -76,6 +76,8 @@ jobs:
         env:
           HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
           OUTPUT=$(./app 2>&1)
@@ -247,6 +249,8 @@ jobs:
         env:
           HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
           OUTPUT=$(./app 2>&1)
@@ -264,7 +268,7 @@ jobs:
 
   s02e01:
     name: S02E01 - Categorize
-    needs: s01e05
+    needs: [s01e05]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -286,6 +290,91 @@ jobs:
         env:
           HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
+        run: |
+          set +e
+          OUTPUT=$(./app 2>&1)
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
+
+  s02e03:
+    name: S02E03 - Failure
+    needs: [s02e02]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+
+      - name: Compile
+        working-directory: S02E03
+        run: cobc -x -o app app.cob
+
+      - name: Run
+        working-directory: S02E03
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+        run: |
+          set +e
+          OUTPUT=$(./app 2>&1)
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
+
+  s02e02:
+    name: S02E02 - Electricity
+    needs: [s02e01]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENROUTER_API_KEY }}"
+
+      - name: Compile
+        working-directory: S02E02
+        run: cobc -x -o app app.cob
+
+      - name: Run
+        working-directory: S02E02
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          COB_FILE_FORMAT: 1
         run: |
           set +e
           OUTPUT=$(./app 2>&1)

@@ -78,8 +78,13 @@
        01  WS-PKG-API-URL           PIC X(200).
        01  WS-OPENAI-URL            PIC X(200).
 
-      *> -- System command (only for mkdir) --
-       01  WS-CMD                   PIC X(500).
+      *> -- POSIX mkdir --
+       01  WS-MKDIR-PATH.
+           05  FILLER               PIC X(14)
+               VALUE "/tmp/sessions".
+           05  FILLER               PIC X(1) VALUE X"00".
+       01  WS-MKDIR-MODE            PIC S9(9) COMP-5 VALUE 511.
+       01  WS-MKDIR-RC              PIC S9(9) COMP-5.
 
       *> -- Work variables --
        01  WS-IDX                   PIC 9(5).
@@ -256,9 +261,12 @@
                INTO WS-PKG-API-URL
            END-STRING
 
-      *>   Create session directory
-           CALL "SYSTEM" USING
-               "mkdir -p /tmp/sessions"
+      *>   Create session directory (POSIX mkdir)
+           CALL "mkdir" USING
+               BY REFERENCE WS-MKDIR-PATH
+               BY VALUE WS-MKDIR-MODE
+               RETURNING WS-MKDIR-RC
+           END-CALL
 
       *>   Initialize libcurl
            PERFORM INIT-CURL
