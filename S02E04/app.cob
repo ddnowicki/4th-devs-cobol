@@ -157,13 +157,36 @@
        01  WS-HELP-ESC-LEN         PIC 9(5).
 
       *> -- Dynamic tool definitions (built from help) --
-       01  WS-TOOLS-JSON           PIC X(4000).
+       01  WS-TOOLS-JSON           PIC X(8000).
 
       *> -- Dynamic action table --
        01  WS-ACT-COUNT            PIC 9(2) VALUE 0.
-       01  WS-ACT-NAMES.
-           05 WS-ACT-NM OCCURS 10 TIMES
-                                   PIC X(30).
+       01  WS-ACTIONS.
+           05 WS-ACT OCCURS 10 TIMES.
+              10 WS-ACT-NM         PIC X(30).
+              10 WS-ACT-DESC       PIC X(200).
+              10 WS-ACT-PCOUNT     PIC 9(2).
+              10 WS-ACT-PARAMS OCCURS 5 TIMES.
+                 15 WS-PAR-NAME    PIC X(20).
+                 15 WS-PAR-TYPE    PIC X(10).
+      *> -- Parsing helpers for help JSON --
+       01  WS-HELP-BUF             PIC X(16000).
+       01  WS-HELP-LEN             PIC 9(5).
+       01  WS-HP-POS               PIC 9(5).
+       01  WS-HP-START             PIC 9(5).
+       01  WS-HP-END               PIC 9(5).
+       01  WS-HP-DEPTH             PIC 9(3).
+       01  WS-HP-KEY               PIC X(30).
+       01  WS-HP-DESC              PIC X(200).
+       01  WS-HP-I                 PIC 9(5).
+       01  WS-HP-J                 PIC 9(5).
+       01  WS-HP-PCOUNT            PIC 9(2).
+       01  WS-HP-PNAME             PIC X(20).
+       01  WS-HP-PTYPE             PIC X(10).
+       01  WS-DT-I                 PIC 9(2).
+       01  WS-DT-J                 PIC 9(2).
+       01  WS-DT-FIRST             PIC X VALUE "Y".
+       01  WS-DT-PFIRST            PIC X VALUE "Y".
 
       *> -- Temp for building zmail JSON body --
        01  WS-ZMAIL-BODY           PIC X(2000).
@@ -279,117 +302,611 @@
            .
 
       *> ============================================================
-      *> BUILD-DYNAMIC-TOOLS: Generate per-action tools
-      *> from help response + static submit_answer.
-      *> Actions: getInbox, getThread, getMessages,
-      *>          search (skip help, reset)
+      *> BUILD-DYNAMIC-TOOLS: Parse help JSON to extract
+      *> actions/params, then generate tool definitions.
       *> ============================================================
        BUILD-DYNAMIC-TOOLS.
            INITIALIZE WS-TOOLS-JSON
-           MOVE 1 TO WS-PTR
+           INITIALIZE WS-ACTIONS
            MOVE 0 TO WS-ACT-COUNT
 
-      *> -- Tool: getInbox(page, perPage) --
-           ADD 1 TO WS-ACT-COUNT
-           MOVE "getInbox"
-               TO WS-ACT-NM(WS-ACT-COUNT)
+      *>   Copy help response into parse buffer
+           MOVE WS-TOOL-RESULT(
+               1:WS-TOOL-RESULT-LEN)
+               TO WS-HELP-BUF
+           MOVE WS-TOOL-RESULT-LEN
+               TO WS-HELP-LEN
 
-           STRING
-               '{"type":"function","function":{'
-               '"name":"getInbox",'
-               '"description":"Return list of '
-               'threads in the mailbox.",'
-               '"parameters":{"type":"object",'
-               '"properties":{'
-               '"page":{"type":"integer",'
-               '"description":"Page number"},'
-               '"perPage":{"type":"integer",'
-               '"description":"Results per page'
-               ' 5-20"}},'
-               '"required":["page","perPage"]'
-               '}}},'
-               DELIMITED SIZE
-               INTO WS-TOOLS-JSON
-               WITH POINTER WS-PTR
-           END-STRING
+      *>   Parse actions from help JSON
+           PERFORM PARSE-HELP-ACTIONS
 
-      *> -- Tool: getThread(threadID) --
-           ADD 1 TO WS-ACT-COUNT
-           MOVE "getThread"
-               TO WS-ACT-NM(WS-ACT-COUNT)
+           DISPLAY "Parsed " WS-ACT-COUNT
+               " actions from help"
+           PERFORM VARYING WS-DT-I
+               FROM 1 BY 1
+               UNTIL WS-DT-I > WS-ACT-COUNT
+               DISPLAY "  " TRIM(
+                   WS-ACT-NM(WS-DT-I))
+                   " (" WS-ACT-PCOUNT(WS-DT-I)
+                   " params)"
+           END-PERFORM
 
-           STRING
-               '{"type":"function","function":{'
-               '"name":"getThread",'
-               '"description":"Return rowID and'
-               ' messageID list for a thread.",'
-               '"parameters":{"type":"object",'
-               '"properties":{'
-               '"threadID":{"type":"integer",'
-               '"description":"Thread ID"}},'
-               '"required":["threadID"]'
-               '}}},'
-               DELIMITED SIZE
-               INTO WS-TOOLS-JSON
-               WITH POINTER WS-PTR
-           END-STRING
+      *>   Build tool JSON from action table
+           PERFORM BUILD-TOOLS-FROM-TABLE
 
-      *> -- Tool: getMessages(ids) --
-           ADD 1 TO WS-ACT-COUNT
-           MOVE "getMessages"
-               TO WS-ACT-NM(WS-ACT-COUNT)
+           DISPLAY "Tools: " WS-ACT-COUNT
+               " mailbox + submit_answer"
+           .
 
-           STRING
-               '{"type":"function","function":{'
-               '"name":"getMessages",'
-               '"description":"Return full '
-               'message bodies by rowID. '
-               'Pass ALL IDs at once in a '
-               'single call to be efficient.",'
-               '"parameters":{"type":"object",'
-               '"properties":{'
-               '"ids":{"type":"array",'
-               '"items":{"type":"string"},'
-               '"description":"Array of rowID'
-               ' strings e.g. [92,93,5]"}},'
-               '"required":["ids"]'
-               '}}},'
-               DELIMITED SIZE
-               INTO WS-TOOLS-JSON
-               WITH POINTER WS-PTR
-           END-STRING
+      *> ============================================================
+      *> PARSE-HELP-ACTIONS: Extract action names,
+      *> descriptions, and params from help JSON.
+      *> Help format: {"actions":{"name":{
+      *>   "description":"...",
+      *>   "params":{"action":"...",
+      *>     "param1":"desc1",...}},...}}
+      *> ============================================================
+       PARSE-HELP-ACTIONS.
+      *>   Find "actions" key
+           MOVE 0 TO WS-HP-POS
+           PERFORM VARYING WS-HP-I
+               FROM 1 BY 1
+               UNTIL WS-HP-I
+                   > WS-HELP-LEN - 9
+               OR WS-HP-POS > 0
+               IF WS-HELP-BUF(
+                   WS-HP-I:9)
+                   = '"actions"'
+                   MOVE WS-HP-I
+                       TO WS-HP-POS
+               END-IF
+           END-PERFORM
 
-      *> -- Tool: search(query, page, perPage) --
-           ADD 1 TO WS-ACT-COUNT
-           MOVE "search"
-               TO WS-ACT-NM(WS-ACT-COUNT)
+           IF WS-HP-POS = 0
+               DISPLAY "  No actions in help!"
+               EXIT PARAGRAPH
+           END-IF
 
-           STRING
-               '{"type":"function","function":{'
-               '"name":"search",'
-               '"description":"Search messages '
-               'with full-text query and '
-               'Gmail-like operators: from: '
-               'to: subject: OR AND -exclude",'
-               '"parameters":{"type":"object",'
-               '"properties":{'
-               '"query":{"type":"string",'
-               '"description":"Search query"},'
-               '"page":{"type":"integer",'
-               '"description":"Page number"},'
-               '"perPage":{"type":"integer",'
-               '"description":"Results per page'
-               ' 5-20"}},'
-               '"required":["query","page",'
-               '"perPage"]'
-               '}}},'
-               DELIMITED SIZE
-               INTO WS-TOOLS-JSON
-               WITH POINTER WS-PTR
-           END-STRING
+      *>   Find the { after "actions":
+           COMPUTE WS-HP-I = WS-HP-POS + 9
+           PERFORM UNTIL WS-HP-I > WS-HELP-LEN
+               OR WS-HELP-BUF(WS-HP-I:1) = "{"
+               ADD 1 TO WS-HP-I
+           END-PERFORM
+           ADD 1 TO WS-HP-I
 
-      *> -- Tool: submit_answer (static) --
-           STRING
+      *>   Now iterate: find each "key":{ block
+           PERFORM UNTIL WS-HP-I > WS-HELP-LEN
+               OR WS-ACT-COUNT >= 10
+
+      *>       Skip whitespace/commas
+               PERFORM UNTIL WS-HP-I
+                   > WS-HELP-LEN
+                   OR (WS-HELP-BUF(WS-HP-I:1)
+                       NOT = " "
+                   AND WS-HELP-BUF(WS-HP-I:1)
+                       NOT = ","
+                   AND WS-HELP-BUF(WS-HP-I:1)
+                       NOT = X"0A"
+                   AND WS-HELP-BUF(WS-HP-I:1)
+                       NOT = X"0D")
+                   ADD 1 TO WS-HP-I
+               END-PERFORM
+
+      *>       Check end of actions object
+               IF WS-HP-I > WS-HELP-LEN
+                   EXIT PERFORM
+               END-IF
+               IF WS-HELP-BUF(WS-HP-I:1) = "}"
+                   EXIT PERFORM
+               END-IF
+
+      *>       Expect a quoted key name
+               IF WS-HELP-BUF(WS-HP-I:1)
+                   NOT = WS-QT
+                   ADD 1 TO WS-HP-I
+                   EXIT PERFORM CYCLE
+               END-IF
+
+      *>       Extract action name
+               ADD 1 TO WS-HP-I
+               MOVE WS-HP-I TO WS-HP-START
+               PERFORM UNTIL WS-HP-I
+                   > WS-HELP-LEN
+                   OR WS-HELP-BUF(WS-HP-I:1)
+                       = WS-QT
+                   ADD 1 TO WS-HP-I
+               END-PERFORM
+               COMPUTE WS-HP-END =
+                   WS-HP-I - 1
+               MOVE SPACES TO WS-HP-KEY
+               IF WS-HP-END >= WS-HP-START
+                   COMPUTE WS-K =
+                       WS-HP-END
+                       - WS-HP-START + 1
+                   IF WS-K > 30
+                       MOVE 30 TO WS-K
+                   END-IF
+                   MOVE WS-HELP-BUF(
+                       WS-HP-START:WS-K)
+                       TO WS-HP-KEY
+               END-IF
+               ADD 1 TO WS-HP-I
+
+      *>       Skip "help" and "reset"
+               IF TRIM(WS-HP-KEY) = "help"
+               OR TRIM(WS-HP-KEY) = "reset"
+      *>           Skip to end of this action obj
+                   PERFORM UNTIL WS-HP-I
+                       > WS-HELP-LEN
+                       OR WS-HELP-BUF(
+                           WS-HP-I:1) = "{"
+                       ADD 1 TO WS-HP-I
+                   END-PERFORM
+                   IF WS-HP-I <= WS-HELP-LEN
+                       MOVE 1 TO WS-HP-DEPTH
+                       ADD 1 TO WS-HP-I
+                       PERFORM UNTIL WS-HP-I
+                           > WS-HELP-LEN
+                           OR WS-HP-DEPTH = 0
+                           IF WS-HELP-BUF(
+                               WS-HP-I:1) = "{"
+                               ADD 1
+                                   TO WS-HP-DEPTH
+                           END-IF
+                           IF WS-HELP-BUF(
+                               WS-HP-I:1) = "}"
+                               SUBTRACT 1
+                                   FROM WS-HP-DEPTH
+                           END-IF
+                           ADD 1 TO WS-HP-I
+                       END-PERFORM
+                   END-IF
+                   EXIT PERFORM CYCLE
+               END-IF
+
+      *>       Register this action
+               ADD 1 TO WS-ACT-COUNT
+               MOVE WS-HP-KEY
+                   TO WS-ACT-NM(WS-ACT-COUNT)
+               MOVE 0
+                   TO WS-ACT-PCOUNT(WS-ACT-COUNT)
+
+      *>       Find the { for action value
+               PERFORM UNTIL WS-HP-I
+                   > WS-HELP-LEN
+                   OR WS-HELP-BUF(
+                       WS-HP-I:1) = "{"
+                   ADD 1 TO WS-HP-I
+               END-PERFORM
+               ADD 1 TO WS-HP-I
+
+      *>       Extract description
+               MOVE SPACES TO WS-HP-DESC
+               MOVE 0 TO WS-HP-POS
+               PERFORM VARYING WS-HP-J
+                   FROM WS-HP-I BY 1
+                   UNTIL WS-HP-J
+                       > WS-HELP-LEN - 13
+                   OR WS-HP-POS > 0
+                   IF WS-HELP-BUF(
+                       WS-HP-J:13)
+                       = '"description"'
+                       MOVE WS-HP-J
+                           TO WS-HP-POS
+                   END-IF
+               END-PERFORM
+
+               IF WS-HP-POS > 0
+      *>           Find : then opening "
+                   COMPUTE WS-HP-J =
+                       WS-HP-POS + 13
+                   PERFORM UNTIL WS-HP-J
+                       > WS-HELP-LEN
+                       OR WS-HELP-BUF(
+                           WS-HP-J:1) = WS-QT
+                       ADD 1 TO WS-HP-J
+                   END-PERFORM
+                   ADD 1 TO WS-HP-J
+                   MOVE WS-HP-J TO WS-HP-START
+      *>           Find closing " (skip \")
+                   PERFORM UNTIL WS-HP-J
+                       > WS-HELP-LEN
+                       IF WS-HELP-BUF(
+                           WS-HP-J:1) = X"5C"
+                       AND WS-HP-J < WS-HELP-LEN
+                           ADD 2 TO WS-HP-J
+                       ELSE
+                           IF WS-HELP-BUF(
+                               WS-HP-J:1)
+                               = WS-QT
+                               EXIT PERFORM
+                           END-IF
+                           ADD 1 TO WS-HP-J
+                       END-IF
+                   END-PERFORM
+                   COMPUTE WS-K =
+                       WS-HP-J - WS-HP-START
+                   IF WS-K > 200
+                       MOVE 200 TO WS-K
+                   END-IF
+                   IF WS-K > 0
+                       MOVE WS-HELP-BUF(
+                           WS-HP-START:WS-K)
+                           TO WS-HP-DESC
+                   END-IF
+               END-IF
+               MOVE WS-HP-DESC
+                   TO WS-ACT-DESC(WS-ACT-COUNT)
+
+      *>       Find "params" object
+               MOVE 0 TO WS-HP-POS
+               PERFORM VARYING WS-HP-J
+                   FROM WS-HP-I BY 1
+                   UNTIL WS-HP-J
+                       > WS-HELP-LEN - 8
+                   OR WS-HP-POS > 0
+                   IF WS-HELP-BUF(
+                       WS-HP-J:8)
+                       = '"params"'
+                       MOVE WS-HP-J
+                           TO WS-HP-POS
+                   END-IF
+               END-PERFORM
+
+               IF WS-HP-POS > 0
+      *>           Find { for params
+                   COMPUTE WS-HP-J =
+                       WS-HP-POS + 8
+                   PERFORM UNTIL WS-HP-J
+                       > WS-HELP-LEN
+                       OR WS-HELP-BUF(
+                           WS-HP-J:1) = "{"
+                       ADD 1 TO WS-HP-J
+                   END-PERFORM
+                   ADD 1 TO WS-HP-J
+                   MOVE 0 TO WS-HP-PCOUNT
+
+      *>           Iterate param keys
+                   PERFORM UNTIL WS-HP-J
+                       > WS-HELP-LEN
+                       OR WS-HP-PCOUNT >= 5
+      *>               Skip ws/commas
+                       PERFORM UNTIL WS-HP-J
+                           > WS-HELP-LEN
+                           OR (
+                           WS-HELP-BUF(
+                               WS-HP-J:1)
+                               NOT = " "
+                           AND WS-HELP-BUF(
+                               WS-HP-J:1)
+                               NOT = ","
+                           AND WS-HELP-BUF(
+                               WS-HP-J:1)
+                               NOT = X"0A"
+                           AND WS-HELP-BUF(
+                               WS-HP-J:1)
+                               NOT = X"0D")
+                           ADD 1 TO WS-HP-J
+                       END-PERFORM
+
+                       IF WS-HP-J > WS-HELP-LEN
+                           EXIT PERFORM
+                       END-IF
+                       IF WS-HELP-BUF(
+                           WS-HP-J:1) = "}"
+                           ADD 1 TO WS-HP-J
+                           EXIT PERFORM
+                       END-IF
+
+                       IF WS-HELP-BUF(
+                           WS-HP-J:1)
+                           NOT = WS-QT
+                           ADD 1 TO WS-HP-J
+                           EXIT PERFORM CYCLE
+                       END-IF
+
+      *>               Extract param name
+                       ADD 1 TO WS-HP-J
+                       MOVE WS-HP-J
+                           TO WS-HP-START
+                       PERFORM UNTIL WS-HP-J
+                           > WS-HELP-LEN
+                           OR WS-HELP-BUF(
+                               WS-HP-J:1)
+                               = WS-QT
+                           ADD 1 TO WS-HP-J
+                       END-PERFORM
+                       MOVE SPACES
+                           TO WS-HP-PNAME
+                       COMPUTE WS-K =
+                           WS-HP-J
+                           - WS-HP-START
+                       IF WS-K > 20
+                           MOVE 20 TO WS-K
+                       END-IF
+                       IF WS-K > 0
+                           MOVE WS-HELP-BUF(
+                               WS-HP-START:
+                               WS-K)
+                               TO WS-HP-PNAME
+                       END-IF
+                       ADD 1 TO WS-HP-J
+
+      *>               Skip "action" param
+                       IF TRIM(WS-HP-PNAME)
+                           = "action"
+      *>                   Skip value (JSON str)
+                           PERFORM
+                               SKIP-JSON-VALUE
+                           EXIT PERFORM CYCLE
+                       END-IF
+
+      *>               Infer type from name
+                       PERFORM
+                           INFER-PARAM-TYPE
+
+      *>               Register param
+                       ADD 1 TO WS-HP-PCOUNT
+                       MOVE WS-HP-PNAME
+                           TO WS-PAR-NAME(
+                               WS-ACT-COUNT,
+                               WS-HP-PCOUNT)
+                       MOVE WS-HP-PTYPE
+                           TO WS-PAR-TYPE(
+                               WS-ACT-COUNT,
+                               WS-HP-PCOUNT)
+
+      *>               Skip param value
+                       PERFORM
+                           SKIP-JSON-VALUE
+                   END-PERFORM
+
+                   MOVE WS-HP-PCOUNT
+                       TO WS-ACT-PCOUNT(
+                           WS-ACT-COUNT)
+               END-IF
+
+      *>       Advance past end of action obj
+      *>       Find the closing } at depth 0
+               MOVE 1 TO WS-HP-DEPTH
+               PERFORM UNTIL WS-HP-I
+                   > WS-HELP-LEN
+                   OR WS-HP-DEPTH = 0
+                   IF WS-HELP-BUF(
+                       WS-HP-I:1) = "{"
+                       ADD 1 TO WS-HP-DEPTH
+                   END-IF
+                   IF WS-HELP-BUF(
+                       WS-HP-I:1) = "}"
+                       SUBTRACT 1
+                           FROM WS-HP-DEPTH
+                   END-IF
+                   ADD 1 TO WS-HP-I
+               END-PERFORM
+           END-PERFORM
+           .
+
+      *> ============================================================
+      *> INFER-PARAM-TYPE: Set WS-HP-PTYPE based on
+      *> WS-HP-PNAME. page/perPage/threadID=integer,
+      *> ids=array, else=string.
+      *> ============================================================
+       INFER-PARAM-TYPE.
+           MOVE "string" TO WS-HP-PTYPE
+
+           IF TRIM(WS-HP-PNAME) = "page"
+           OR TRIM(WS-HP-PNAME) = "perPage"
+           OR TRIM(WS-HP-PNAME) = "threadID"
+               MOVE "integer" TO WS-HP-PTYPE
+           END-IF
+
+           IF TRIM(WS-HP-PNAME) = "ids"
+               MOVE "array" TO WS-HP-PTYPE
+           END-IF
+           .
+
+      *> ============================================================
+      *> SKIP-JSON-VALUE: Advance WS-HP-J past the
+      *> current JSON value (string or other). Handles
+      *> escaped quotes in strings. Stops after the
+      *> value, positioned at , or } delimiter.
+      *> ============================================================
+       SKIP-JSON-VALUE.
+      *>   Skip to : first
+           PERFORM UNTIL WS-HP-J > WS-HELP-LEN
+               OR WS-HELP-BUF(WS-HP-J:1) = ":"
+               ADD 1 TO WS-HP-J
+           END-PERFORM
+           ADD 1 TO WS-HP-J
+
+      *>   Skip whitespace
+           PERFORM UNTIL WS-HP-J > WS-HELP-LEN
+               OR WS-HELP-BUF(WS-HP-J:1)
+                   NOT = " "
+               ADD 1 TO WS-HP-J
+           END-PERFORM
+
+      *>   If string value, skip with \"
+           IF WS-HP-J <= WS-HELP-LEN
+           AND WS-HELP-BUF(WS-HP-J:1) = WS-QT
+               ADD 1 TO WS-HP-J
+               PERFORM UNTIL WS-HP-J
+                   > WS-HELP-LEN
+                   IF WS-HELP-BUF(WS-HP-J:1)
+                       = X"5C"
+                   AND WS-HP-J < WS-HELP-LEN
+                       ADD 2 TO WS-HP-J
+                   ELSE
+                       IF WS-HELP-BUF(
+                           WS-HP-J:1) = WS-QT
+                           ADD 1 TO WS-HP-J
+                           EXIT PERFORM
+                       END-IF
+                       ADD 1 TO WS-HP-J
+                   END-IF
+               END-PERFORM
+           ELSE
+      *>       Non-string: skip to , or }
+               PERFORM UNTIL WS-HP-J
+                   > WS-HELP-LEN
+                   OR WS-HELP-BUF(
+                       WS-HP-J:1) = ","
+                   OR WS-HELP-BUF(
+                       WS-HP-J:1) = "}"
+                   ADD 1 TO WS-HP-J
+               END-PERFORM
+           END-IF
+           .
+
+      *> ============================================================
+      *> BUILD-TOOLS-FROM-TABLE: Generate tools JSON
+      *> from WS-ACTIONS table + static submit_answer.
+      *> ============================================================
+       BUILD-TOOLS-FROM-TABLE.
+           INITIALIZE WS-TOOLS-JSON
+           MOVE 1 TO WS-PTR
+           MOVE "Y" TO WS-DT-FIRST
+
+           PERFORM VARYING WS-DT-I
+               FROM 1 BY 1
+               UNTIL WS-DT-I > WS-ACT-COUNT
+
+      *>       Comma separator
+               IF WS-DT-FIRST = "Y"
+                   MOVE "N" TO WS-DT-FIRST
+               ELSE
+                   STRING ","
+                       DELIMITED SIZE
+                       INTO WS-TOOLS-JSON
+                       WITH POINTER WS-PTR
+                   END-STRING
+               END-IF
+
+      *>       Escape description for JSON
+               MOVE TRIM(
+                   WS-ACT-DESC(WS-DT-I))
+                   TO WS-ESC-IN
+               PERFORM JSON-ESCAPE-STR
+
+      *>       Tool header
+               STRING
+                   '{"type":"function",'
+                   '"function":{"name":"'
+                   TRIM(WS-ACT-NM(WS-DT-I))
+                   '","description":"'
+                   WS-ESC-OUT(1:WS-ESC-OLEN)
+                   '","parameters":{'
+                   '"type":"object",'
+                   '"properties":{'
+                   DELIMITED SIZE
+                   INTO WS-TOOLS-JSON
+                   WITH POINTER WS-PTR
+               END-STRING
+
+      *>       Emit each param
+               MOVE "Y" TO WS-DT-PFIRST
+               PERFORM VARYING WS-DT-J
+                   FROM 1 BY 1
+                   UNTIL WS-DT-J
+                       > WS-ACT-PCOUNT(WS-DT-I)
+
+                   IF WS-DT-PFIRST = "Y"
+                       MOVE "N"
+                           TO WS-DT-PFIRST
+                   ELSE
+                       STRING ","
+                           DELIMITED SIZE
+                           INTO WS-TOOLS-JSON
+                           WITH POINTER WS-PTR
+                       END-STRING
+                   END-IF
+
+      *>           Handle ids as array type
+                   IF TRIM(WS-PAR-TYPE(
+                       WS-DT-I, WS-DT-J))
+                       = "array"
+                       STRING
+                           '"'
+                           TRIM(WS-PAR-NAME(
+                               WS-DT-I,
+                               WS-DT-J))
+                           '":{"type":"array"'
+                           ',"items":'
+                           '{"type":"string"}'
+                           ',"description":"'
+                           TRIM(WS-PAR-NAME(
+                               WS-DT-I,
+                               WS-DT-J))
+                           '"}'
+                           DELIMITED SIZE
+                           INTO WS-TOOLS-JSON
+                           WITH POINTER WS-PTR
+                       END-STRING
+                   ELSE
+                       STRING
+                           '"'
+                           TRIM(WS-PAR-NAME(
+                               WS-DT-I,
+                               WS-DT-J))
+                           '":{"type":"'
+                           TRIM(WS-PAR-TYPE(
+                               WS-DT-I,
+                               WS-DT-J))
+                           '","description":"'
+                           TRIM(WS-PAR-NAME(
+                               WS-DT-I,
+                               WS-DT-J))
+                           '"}'
+                           DELIMITED SIZE
+                           INTO WS-TOOLS-JSON
+                           WITH POINTER WS-PTR
+                       END-STRING
+                   END-IF
+               END-PERFORM
+
+      *>       Required array + close
+               STRING '},"required":['
+                   DELIMITED SIZE
+                   INTO WS-TOOLS-JSON
+                   WITH POINTER WS-PTR
+               END-STRING
+
+               MOVE "Y" TO WS-DT-PFIRST
+               PERFORM VARYING WS-DT-J
+                   FROM 1 BY 1
+                   UNTIL WS-DT-J
+                       > WS-ACT-PCOUNT(WS-DT-I)
+                   IF WS-DT-PFIRST = "Y"
+                       MOVE "N"
+                           TO WS-DT-PFIRST
+                   ELSE
+                       STRING ","
+                           DELIMITED SIZE
+                           INTO WS-TOOLS-JSON
+                           WITH POINTER WS-PTR
+                       END-STRING
+                   END-IF
+                   STRING
+                       '"'
+                       TRIM(WS-PAR-NAME(
+                           WS-DT-I, WS-DT-J))
+                       '"'
+                       DELIMITED SIZE
+                       INTO WS-TOOLS-JSON
+                       WITH POINTER WS-PTR
+                   END-STRING
+               END-PERFORM
+
+               STRING ']}}}'
+                   DELIMITED SIZE
+                   INTO WS-TOOLS-JSON
+                   WITH POINTER WS-PTR
+               END-STRING
+           END-PERFORM
+
+      *>   Append static submit_answer
+           STRING ','
                '{"type":"function","function":{'
                '"name":"submit_answer",'
                '"description":"Submit all 3 '
@@ -411,14 +928,6 @@
                INTO WS-TOOLS-JSON
                WITH POINTER WS-PTR
            END-STRING
-
-           DISPLAY "Tools: " WS-ACT-COUNT
-               " mailbox + submit_answer"
-           DISPLAY "Actions: "
-               TRIM(WS-ACT-NM(1)) " "
-               TRIM(WS-ACT-NM(2)) " "
-               TRIM(WS-ACT-NM(3)) " "
-               TRIM(WS-ACT-NM(4))
            .
 
       *> ============================================================
@@ -852,28 +1361,34 @@
 
       *> ============================================================
       *> DISPATCH-TOOL: Match tool name to mailbox
-      *> action or submit_answer
+      *> action (dynamic) or submit_answer
       *> ============================================================
        DISPATCH-TOOL.
            MOVE SPACES TO WS-TOOL-RESULT
            MOVE 0 TO WS-TOOL-RESULT-LEN
 
-           EVALUATE TRIM(WS-TOOL-NAME)
-           WHEN "getInbox"
-               PERFORM TOOL-MAILBOX-ACTION
-           WHEN "getThread"
-               PERFORM TOOL-MAILBOX-ACTION
-           WHEN "getMessages"
-               PERFORM TOOL-MAILBOX-ACTION
-           WHEN "search"
-               PERFORM TOOL-MAILBOX-ACTION
-           WHEN "submit_answer"
+           IF TRIM(WS-TOOL-NAME) =
+               "submit_answer"
                PERFORM TOOL-SUBMIT-ANSWER
-           WHEN OTHER
+               EXIT PARAGRAPH
+           END-IF
+
+      *>   Check against dynamic action table
+           PERFORM VARYING WS-DT-I
+               FROM 1 BY 1
+               UNTIL WS-DT-I > WS-ACT-COUNT
+               IF TRIM(WS-TOOL-NAME) =
+                   TRIM(WS-ACT-NM(WS-DT-I))
+                   PERFORM TOOL-MAILBOX-ACTION
+                   EXIT PERFORM
+               END-IF
+           END-PERFORM
+
+           IF WS-TOOL-RESULT-LEN = 0
                MOVE '{"error":"Unknown tool"}'
                    TO WS-TOOL-RESULT
                MOVE 23 TO WS-TOOL-RESULT-LEN
-           END-EVALUATE
+           END-IF
            .
 
       *> ============================================================
