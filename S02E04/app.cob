@@ -35,9 +35,7 @@
        01  WS-HUB-URL              PIC X(100).
        01  WS-OPENAI-URL           PIC X(200).
        01  WS-VERIFY-URL           PIC X(200).
-       01  WS-ZMAIL-URL            PIC X(200)
-           VALUE
-           "REDACTED_HUB_URL/api/zmail".
+       01  WS-ZMAIL-URL            PIC X(200).
 
       *> -- JSON newline: backslash + n --
        01  WS-NL                   PIC X(2).
@@ -224,6 +222,11 @@
            INITIALIZE WS-VERIFY-URL
            STRING TRIM(WS-HUB-URL) "/verify"
                DELIMITED SIZE INTO WS-VERIFY-URL
+           END-STRING
+
+           INITIALIZE WS-ZMAIL-URL
+           STRING TRIM(WS-HUB-URL) "/api/zmail"
+               DELIMITED SIZE INTO WS-ZMAIL-URL
            END-STRING
 
       *>   Init JSON newline (backslash + n)

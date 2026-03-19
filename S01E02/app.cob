@@ -94,6 +94,7 @@
        01  WS-H-COS2              PIC S9(3)V9(10).
 
       *> -- Geocoding --
+       01  WS-GEOCODE-URL          PIC X(200).
        01  WS-GEO-CITY             PIC X(100).
        01  WS-GEO-OK               PIC X VALUE "N".
 
@@ -218,6 +219,8 @@
                FROM ENVIRONMENT "HUB_API_URL"
            ACCEPT WS-OPENAI-URL
                FROM ENVIRONMENT "OPENAI_API_URL"
+           ACCEPT WS-GEOCODE-URL
+               FROM ENVIRONMENT "GEOCODING_API_URL"
 
            IF WS-HUB-KEY = SPACES
                DISPLAY "ERROR: HUB_API_KEY not set"
@@ -875,8 +878,8 @@
            INITIALIZE WS-CMD
            STRING "curl -s -o geo.json "
                WS-QT
-               "https://geocoding-api.open-meteo."
-               "com/v1/search?name="
+               TRIM(WS-GEOCODE-URL)
+               "?name="
                TRIM(WS-TMP2)
                "&count=10" WS-QT
                DELIMITED SIZE INTO WS-CMD

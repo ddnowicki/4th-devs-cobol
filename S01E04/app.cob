@@ -194,8 +194,8 @@
            STRING
                "curl -s -o "
                "doc_wagons.tmp "
-               "REDACTED_HUB"
-               ".org/dane/doc/"
+               TRIM(WS-HUB-URL)
+               "/dane/doc/"
                "dodatkowe-wagony.md"
                DELIMITED SIZE
                INTO WS-CMD
@@ -206,8 +206,8 @@
            STRING
                "curl -s -o "
                "doc_template.tmp "
-               "REDACTED_HUB"
-               ".org/dane/doc/"
+               TRIM(WS-HUB-URL)
+               "/dane/doc/"
                "zalacznik-E.md"
                DELIMITED SIZE
                INTO WS-CMD
@@ -218,8 +218,8 @@
            STRING
                "curl -s -o "
                "doc_glossary.tmp "
-               "REDACTED_HUB"
-               ".org/dane/doc/"
+               TRIM(WS-HUB-URL)
+               "/dane/doc/"
                "zalacznik-G.md"
                DELIMITED SIZE
                INTO WS-CMD
@@ -230,8 +230,8 @@
            STRING
                "curl -s -o "
                "doc_network.tmp "
-               "REDACTED_HUB"
-               ".org/dane/doc/"
+               TRIM(WS-HUB-URL)
+               "/dane/doc/"
                "zalacznik-F.md"
                DELIMITED SIZE
                INTO WS-CMD
@@ -294,8 +294,8 @@
                WS-QT ":{"
                WS-QT "url" WS-QT ":"
                WS-QT
-               "REDACTED_HUB"
-               ".org/dane/doc/"
+               TRIM(WS-HUB-URL)
+               "/dane/doc/"
                "trasy-wylaczone.png"
                WS-QT "}}]}],"
                WS-QT "temperature"

@@ -101,6 +101,7 @@ jobs:
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+          GEOCODING_API_URL: ${{ secrets.GEOCODING_API_URL }}
         run: |
           set +e
           OUTPUT=$(./app 2>&1)
@@ -439,6 +440,7 @@ jobs:
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_URL: ${{ secrets.OPENROUTER_API_URL }}
           COB_FILE_FORMAT: 1
         run: |
           set +e

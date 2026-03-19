@@ -68,8 +68,7 @@
        01  WS-VERIFY-URL           PIC X(200).
        01  WS-BOARD-URL            PIC X(300).
        01  WS-SOLVED-URL           PIC X(300).
-       01  WS-API-URL              PIC X(200) VALUE
-           "https://openrouter.ai/api/v1/chat/completions".
+       01  WS-API-URL              PIC X(200).
        01  WS-TASK-NAME            PIC X(20) VALUE "electricity".
 
        01  WS-CMD                  PIC X(8000).
@@ -773,6 +772,8 @@
            ACCEPT WS-HUB-URL FROM ENVIRONMENT "HUB_API_URL"
            ACCEPT WS-OR-KEY FROM ENVIRONMENT
                "OPENROUTER_API_KEY"
+           ACCEPT WS-API-URL FROM ENVIRONMENT
+               "OPENROUTER_API_URL"
 
            INITIALIZE WS-VERIFY-URL
            STRING TRIM(WS-HUB-URL) "/verify"
