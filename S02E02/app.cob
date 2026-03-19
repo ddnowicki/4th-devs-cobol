@@ -723,9 +723,8 @@
            DISPLAY "  Total: " WS-TOTAL-ROTS
 
       *>   Re-init key and URL (guard against corruption)
-           MOVE "REDACTED_HUB_API_KEY"
-               TO WS-HUB-KEY
-           MOVE "REDACTED_HUB_URL" TO WS-HUB-URL
+           ACCEPT WS-HUB-KEY FROM ENVIRONMENT "HUB_API_KEY"
+           ACCEPT WS-HUB-URL FROM ENVIRONMENT "HUB_API_URL"
 
       *>   Re-build URLs and re-reset board before rotations
            INITIALIZE WS-BOARD-URL
@@ -770,12 +769,10 @@
       *> INIT-CONFIG
       *> ============================================================
        INIT-CONFIG.
-           MOVE "REDACTED_HUB_API_KEY"
-               TO WS-HUB-KEY
-           MOVE "REDACTED_HUB_URL" TO WS-HUB-URL
-           MOVE "REDACTED_OPENROUTER_KEY"
-               & "REDACTED_OPENROUTER_KEY_PART2"
-               TO WS-OR-KEY
+           ACCEPT WS-HUB-KEY FROM ENVIRONMENT "HUB_API_KEY"
+           ACCEPT WS-HUB-URL FROM ENVIRONMENT "HUB_API_URL"
+           ACCEPT WS-OR-KEY FROM ENVIRONMENT
+               "OPENROUTER_API_KEY"
 
            INITIALIZE WS-VERIFY-URL
            STRING TRIM(WS-HUB-URL) "/verify"

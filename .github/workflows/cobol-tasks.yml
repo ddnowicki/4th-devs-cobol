@@ -8,8 +8,31 @@ on:
   workflow_dispatch:
 
 jobs:
+  rate-limit-gate:
+    name: Wait for API rate limit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check API availability
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+        run: |
+          while true; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              "${HUB_API_URL}/data/${HUB_API_KEY}/people.csv")
+            echo "HTTP $CODE at $(date)"
+            if [ "$CODE" = "200" ]; then
+              echo "API available - proceeding"
+              break
+            fi
+            echo "Rate limited - waiting 5 minutes..."
+            sleep 300
+          done
+
   s01e01:
     name: S01E01 - People
+    needs: rate-limit-gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
