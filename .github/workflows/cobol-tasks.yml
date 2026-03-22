@@ -413,6 +413,48 @@ jobs:
             exit 1
           fi
 
+  s02e05:
+    name: S02E05 - Drone
+    needs: [s02e04]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+
+      - name: Compile
+        working-directory: S02E05
+        run: cobc -x -o app app.cob
+
+      - name: Run
+        working-directory: S02E05
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+        run: |
+          set +e
+          OUTPUT=$(./app 2>&1)
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
+
   s02e02:
     name: S02E02 - Electricity
     needs: [s02e01]
