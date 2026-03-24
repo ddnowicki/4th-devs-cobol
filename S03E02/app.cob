@@ -1,0 +1,928 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. S03E02-FIRMWARE.
+      *> ============================================================
+      *> S03E02 - Firmware Fixer (Pure COBOL)
+      *> 1. Reboot VM via Shell API
+      *> 2. Scripted exploration to gather filesystem data
+      *> 3. ONE GPT-4.1-mini call to find the password
+      *> 4. Deterministic config fix + binary execution
+      *> 5. Submit ECCS code to Hub /verify
+      *> ============================================================
+
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           FUNCTION ALL INTRINSIC.
+
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT WORK-FILE ASSIGN TO WS-WORK-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  WORK-FILE.
+       01  WORK-REC                PIC X(16000).
+
+       WORKING-STORAGE SECTION.
+      *> -- Config --
+       01  WS-HUB-KEY              PIC X(100).
+       01  WS-OPENAI-KEY           PIC X(200).
+       01  WS-QT                   PIC X(1) VALUE '"'.
+       01  WS-FS                   PIC XX.
+       01  WS-WORK-PATH            PIC X(200)
+                                   VALUE "work.tmp".
+
+      *> -- URLs --
+       01  WS-HUB-URL              PIC X(100).
+       01  WS-OPENAI-URL           PIC X(200).
+       01  WS-SHELL-URL            PIC X(200).
+       01  WS-VERIFY-URL           PIC X(200).
+
+      *> -- JSON helpers --
+       01  WS-NL                   PIC X(2).
+       01  WS-PTR                  PIC 9(5).
+
+      *> -- System command --
+       01  WS-CMD                  PIC X(4000).
+
+      *> -- Request / payload --
+       01  WS-REQ-JSON             PIC X(16000).
+       01  WS-PAYLOAD              PIC X(4000).
+
+      *> -- JSON parse buffer --
+       01  WS-JBUF                 PIC X(16000).
+       01  WS-JLEN                 PIC 9(5).
+       01  WS-JPOS                 PIC 9(5).
+       01  WS-JVAL                 PIC X(8000).
+
+      *> -- JSON parsing temps --
+       01  WS-KEY-SEARCH           PIC X(50).
+       01  WS-KEY-POS              PIC 9(5).
+       01  WS-VAL-START            PIC 9(5).
+       01  WS-VAL-END              PIC 9(5).
+       01  WS-FJV-POS             PIC 9(5).
+       01  WS-TMP                  PIC X(500).
+
+      *> -- File I/O --
+       01  WS-EOF                  PIC X VALUE "N".
+       01  WS-LINE                 PIC X(16000).
+       01  WS-K                    PIC 9(5).
+       01  WS-I                    PIC 9(5).
+       01  WS-TALLY-CNT            PIC 9(5).
+
+      *> -- Shell API --
+       01  WS-SHELL-CMD            PIC X(500).
+       01  WS-SHELL-DATA           PIC X(8000).
+       01  WS-SHELL-CODE           PIC X(20).
+       01  WS-SHELL-RETRY          PIC 9(2).
+
+      *> -- Task state --
+       01  WS-PASSWORD             PIC X(100).
+       01  WS-ECCS-CODE            PIC X(100).
+       01  WS-SUCCESS              PIC X VALUE "N".
+
+      *> -- Gathered data for AI --
+       01  WS-GATHERED             PIC X(8000).
+       01  WS-GATH-LEN             PIC 9(5).
+
+       PROCEDURE DIVISION.
+       MAIN-PARA.
+           DISPLAY "=== S03E02 FIRMWARE ==="
+
+           PERFORM INIT-ENV
+           PERFORM REBOOT-VM
+           PERFORM EXPLORE-VM
+           PERFORM AI-FIND-PASSWORD
+           PERFORM FIX-AND-RUN
+
+           IF TRIM(WS-ECCS-CODE)
+               NOT = SPACES
+               PERFORM SUBMIT-ECCS
+           ELSE
+               DISPLAY "  No ECCS found!"
+           END-IF
+
+           IF WS-SUCCESS = "Y"
+               DISPLAY " "
+               DISPLAY "=== SUCCESS ==="
+           ELSE
+               DISPLAY " "
+               DISPLAY "=== FAILED ==="
+           END-IF
+           STOP RUN.
+
+      *> ============================================================
+      *> INIT-ENV: Load env vars, build URLs
+      *> ============================================================
+       INIT-ENV.
+           ACCEPT WS-HUB-KEY
+               FROM ENVIRONMENT "HUB_API_KEY"
+           ACCEPT WS-OPENAI-KEY
+               FROM ENVIRONMENT "OPENAI_API_KEY"
+           ACCEPT WS-HUB-URL
+               FROM ENVIRONMENT "HUB_API_URL"
+           ACCEPT WS-OPENAI-URL
+               FROM ENVIRONMENT "OPENAI_API_URL"
+
+           IF WS-HUB-KEY = SPACES
+               DISPLAY "ERR: HUB_API_KEY!"
+               STOP RUN
+           END-IF
+           IF WS-OPENAI-KEY = SPACES
+               DISPLAY "ERR: OPENAI_API_KEY!"
+               STOP RUN
+           END-IF
+           IF WS-HUB-URL = SPACES
+               DISPLAY "ERR: HUB_API_URL!"
+               STOP RUN
+           END-IF
+           IF WS-OPENAI-URL = SPACES
+               DISPLAY "ERR: OPENAI_API_URL!"
+               STOP RUN
+           END-IF
+
+           MOVE SPACES TO WS-SHELL-URL
+           STRING TRIM(WS-HUB-URL)
+               "/api/shell"
+               DELIMITED SIZE
+               INTO WS-SHELL-URL
+           END-STRING
+
+           MOVE SPACES TO WS-VERIFY-URL
+           STRING TRIM(WS-HUB-URL)
+               "/verify"
+               DELIMITED SIZE
+               INTO WS-VERIFY-URL
+           END-STRING
+
+           MOVE X"5C" TO WS-NL(1:1)
+           MOVE "n"    TO WS-NL(2:1)
+
+           DISPLAY "  Shell: "
+               TRIM(WS-SHELL-URL)
+           .
+
+      *> ============================================================
+      *> REBOOT-VM: Reset VM to clean state
+      *> ============================================================
+       REBOOT-VM.
+           DISPLAY " "
+           DISPLAY "--- REBOOT ---"
+           MOVE "reboot" TO WS-SHELL-CMD
+           PERFORM SHELL-EXEC
+           CALL "C$SLEEP" USING 1
+           .
+
+      *> ============================================================
+      *> EXPLORE-VM: Gather filesystem data
+      *> ============================================================
+       EXPLORE-VM.
+           DISPLAY " "
+           DISPLAY "--- EXPLORE ---"
+           MOVE 0 TO WS-GATH-LEN
+           MOVE SPACES TO WS-GATHERED
+
+      *>   Read settings.ini
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "cat /opt/firmware/"
+               "cooler/settings.ini"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+           PERFORM APPEND-DATA
+
+      *>   Explore /home
+           MOVE "ls /home"
+               TO WS-SHELL-CMD
+           PERFORM SHELL-EXEC
+
+           MOVE "ls /home/operator"
+               TO WS-SHELL-CMD
+           PERFORM SHELL-EXEC
+
+      *>   Read password file
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "ls /home/operator/"
+               "notes"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "cat /home/operator/"
+               "notes/pass.txt"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+           PERFORM APPEND-DATA
+
+      *>   Read bash_history
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "cat /home/operator/"
+               ".bash_history"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+           PERFORM APPEND-DATA
+
+      *>   Check /tmp
+           MOVE "ls /tmp"
+               TO WS-SHELL-CMD
+           PERFORM SHELL-EXEC
+
+           MOVE "cat /tmp/aidevs4.txt"
+               TO WS-SHELL-CMD
+           PERFORM SHELL-EXEC
+
+           DISPLAY "  Gathered "
+               WS-GATH-LEN " chars"
+           .
+
+      *> ============================================================
+      *> APPEND-DATA: Add WS-SHELL-DATA to gathered buf
+      *> ============================================================
+       APPEND-DATA.
+           IF TRIM(WS-SHELL-DATA) = SPACES
+               EXIT PARAGRAPH
+           END-IF
+           MOVE LENGTH(TRIM(WS-SHELL-DATA))
+               TO WS-K
+           IF WS-K = 0
+               EXIT PARAGRAPH
+           END-IF
+      *>   Add separator
+           IF WS-GATH-LEN > 0
+               ADD 1 TO WS-GATH-LEN
+               MOVE X"5C"
+                   TO WS-GATHERED(
+                   WS-GATH-LEN:1)
+               ADD 1 TO WS-GATH-LEN
+               MOVE "n"
+                   TO WS-GATHERED(
+                   WS-GATH-LEN:1)
+               ADD 1 TO WS-GATH-LEN
+               MOVE "-"
+                   TO WS-GATHERED(
+                   WS-GATH-LEN:1)
+               ADD 1 TO WS-GATH-LEN
+               MOVE "-"
+                   TO WS-GATHERED(
+                   WS-GATH-LEN:1)
+               ADD 1 TO WS-GATH-LEN
+               MOVE "-"
+                   TO WS-GATHERED(
+                   WS-GATH-LEN:1)
+               ADD 1 TO WS-GATH-LEN
+               MOVE X"5C"
+                   TO WS-GATHERED(
+                   WS-GATH-LEN:1)
+               ADD 1 TO WS-GATH-LEN
+               MOVE "n"
+                   TO WS-GATHERED(
+                   WS-GATH-LEN:1)
+           END-IF
+      *>   Append data
+           IF WS-GATH-LEN + WS-K < 7900
+               MOVE WS-SHELL-DATA(1:WS-K)
+                   TO WS-GATHERED(
+                   WS-GATH-LEN + 1:WS-K)
+               ADD WS-K TO WS-GATH-LEN
+           END-IF
+           .
+
+      *> ============================================================
+      *> AI-FIND-PASSWORD: ONE call to GPT-4.1-mini
+      *> ============================================================
+       AI-FIND-PASSWORD.
+           DISPLAY " "
+           DISPLAY "--- AI ANALYSIS ---"
+
+           MOVE SPACES TO WS-REQ-JSON
+           MOVE 1 TO WS-PTR
+
+      *>   Build JSON request
+           STRING
+               "{"
+               WS-QT "model" WS-QT ":"
+               WS-QT "gpt-4.1-mini"
+               WS-QT ","
+               WS-QT "messages"
+               WS-QT ":["
+               "{"
+               WS-QT "role" WS-QT ":"
+               WS-QT "user" WS-QT ","
+               WS-QT "content" WS-QT
+               ":" WS-QT
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Prompt text
+           STRING
+               "Files from a Linux"
+               " VM:" WS-NL WS-NL
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Gathered data
+           IF WS-GATH-LEN > 0
+               STRING
+                   WS-GATHERED(
+                   1:WS-GATH-LEN)
+                   DELIMITED SIZE
+                   INTO WS-REQ-JSON
+                   WITH POINTER WS-PTR
+               END-STRING
+           END-IF
+
+      *>   Question + close JSON
+           STRING
+               WS-NL WS-NL
+               "What is the password"
+               " to run cooler.bin?"
+               " Reply ONLY the "
+               "password string, "
+               "nothing else."
+               WS-QT "}],"
+               WS-QT "temperature"
+               WS-QT ":0,"
+               WS-QT "max_tokens"
+               WS-QT ":50}"
+               DELIMITED SIZE
+               INTO WS-REQ-JSON
+               WITH POINTER WS-PTR
+           END-STRING
+
+      *>   Write request to file
+           OPEN OUTPUT WORK-FILE
+           WRITE WORK-REC
+               FROM WS-REQ-JSON
+           CLOSE WORK-FILE
+
+      *>   Call OpenAI
+           PERFORM CALL-OPENAI
+
+      *>   Extract password
+           MOVE "llm_resp.json"
+               TO WS-WORK-PATH
+           PERFORM READ-JSON-FILE
+           MOVE "work.tmp"
+               TO WS-WORK-PATH
+
+           IF WS-JLEN = 0
+               DISPLAY "  Empty AI resp!"
+               EXIT PARAGRAPH
+           END-IF
+
+           MOVE 0 TO WS-TALLY-CNT
+           INSPECT WS-JBUF(1:WS-JLEN)
+               TALLYING WS-TALLY-CNT
+               FOR ALL '"error"'
+           IF WS-TALLY-CNT > 0
+               DISPLAY "  AI ERR: "
+                   TRIM(WS-JBUF)(1:300)
+               EXIT PARAGRAPH
+           END-IF
+
+           MOVE "content"
+               TO WS-KEY-SEARCH
+           MOVE 1 TO WS-JPOS
+           PERFORM FIND-JSON-VAL
+
+           MOVE TRIM(WS-JVAL)
+               TO WS-PASSWORD
+           DISPLAY "  Password: "
+               TRIM(WS-PASSWORD)
+           .
+
+      *> ============================================================
+      *> CALL-OPENAI: POST work.tmp to OpenAI
+      *> ============================================================
+       CALL-OPENAI.
+           DISPLAY "  Calling OpenAI..."
+           INITIALIZE WS-CMD
+           STRING
+               "curl -s "
+               "-o llm_resp.json"
+               " -X POST "
+               TRIM(WS-OPENAI-URL)
+               " -H " WS-QT
+               "Content-Type: "
+               "application/json"
+               WS-QT
+               " -H " WS-QT
+               "Authorization: "
+               "Bearer "
+               TRIM(WS-OPENAI-KEY)
+               WS-QT
+               " -d @work.tmp"
+               DELIMITED SIZE
+               INTO WS-CMD
+           END-STRING
+           CALL "SYSTEM" USING WS-CMD
+           .
+
+      *> ============================================================
+      *> FIX-AND-RUN: Apply config fixes, run binary
+      *> ============================================================
+       FIX-AND-RUN.
+           DISPLAY " "
+           DISPLAY "--- FIX & RUN ---"
+
+           IF TRIM(WS-PASSWORD) = SPACES
+               DISPLAY "  No password!"
+               EXIT PARAGRAPH
+           END-IF
+
+      *>   Remove lock file
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "rm /opt/firmware/"
+               "cooler/"
+               "cooler-is-blocked"
+               ".lock"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+
+      *>   Edit line 2: uncomment SAFETY_CHECK
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "editline /opt/"
+               "firmware/cooler/"
+               "settings.ini 2 "
+               "SAFETY_CHECK=pass"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+
+      *>   Edit line 6: disable test_mode
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "editline /opt/"
+               "firmware/cooler/"
+               "settings.ini 6 "
+               "enabled=false"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+
+      *>   Edit line 10: enable cooling
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "editline /opt/"
+               "firmware/cooler/"
+               "settings.ini 10 "
+               "enabled=true"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+
+      *>   cd to firmware dir
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "cd /opt/firmware/"
+               "cooler"
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+
+      *>   Run binary with password
+           MOVE SPACES TO WS-SHELL-CMD
+           STRING
+               "./cooler.bin "
+               TRIM(WS-PASSWORD)
+               DELIMITED SIZE
+               INTO WS-SHELL-CMD
+           END-STRING
+           PERFORM SHELL-EXEC
+
+      *>   Extract ECCS from output
+           PERFORM EXTRACT-ECCS
+           .
+
+      *> ============================================================
+      *> EXTRACT-ECCS: Find ECCS code in shell data
+      *> ============================================================
+       EXTRACT-ECCS.
+           MOVE SPACES TO WS-ECCS-CODE
+
+           IF TRIM(WS-SHELL-DATA) = SPACES
+               DISPLAY "  No binary output!"
+               EXIT PARAGRAPH
+           END-IF
+
+           MOVE 0 TO WS-TALLY-CNT
+           MOVE LENGTH(
+               TRIM(WS-SHELL-DATA))
+               TO WS-K
+           INSPECT WS-SHELL-DATA(1:WS-K)
+               TALLYING WS-TALLY-CNT
+               FOR ALL "ECCS-"
+
+           IF WS-TALLY-CNT = 0
+               DISPLAY "  No ECCS found!"
+               DISPLAY "  Data: "
+                   WS-SHELL-DATA(1:200)
+               EXIT PARAGRAPH
+           END-IF
+
+      *>   Find ECCS- position
+           PERFORM VARYING WS-I
+               FROM 1 BY 1
+               UNTIL WS-I > WS-K - 4
+               IF WS-SHELL-DATA(
+                   WS-I:5) = "ECCS-"
+                   MOVE WS-SHELL-DATA(
+                       WS-I:45)
+                       TO WS-ECCS-CODE
+                   DISPLAY "  ECCS: "
+                       TRIM(WS-ECCS-CODE)
+                   EXIT PERFORM
+               END-IF
+           END-PERFORM
+           .
+
+      *> ============================================================
+      *> SUBMIT-ECCS: Submit to /verify
+      *> ============================================================
+       SUBMIT-ECCS.
+           DISPLAY " "
+           DISPLAY "--- SUBMIT ---"
+
+           MOVE SPACES TO WS-PAYLOAD
+           STRING
+               "{"
+               WS-QT "apikey" WS-QT ":"
+               WS-QT TRIM(WS-HUB-KEY)
+               WS-QT ","
+               WS-QT "task" WS-QT ":"
+               WS-QT "firmware"
+               WS-QT ","
+               WS-QT "answer" WS-QT
+               ":{"
+               WS-QT "confirmation"
+               WS-QT ":"
+               WS-QT
+               TRIM(WS-ECCS-CODE)
+               WS-QT "}}"
+               DELIMITED SIZE
+               INTO WS-PAYLOAD
+           END-STRING
+
+           OPEN OUTPUT WORK-FILE
+           WRITE WORK-REC
+               FROM WS-PAYLOAD
+           CLOSE WORK-FILE
+
+           INITIALIZE WS-CMD
+           STRING
+               "curl -s "
+               "-o hub_resp.json"
+               " -X POST "
+               TRIM(WS-VERIFY-URL)
+               " -H " WS-QT
+               "Content-Type: "
+               "application/json"
+               WS-QT
+               " -d @work.tmp"
+               DELIMITED SIZE
+               INTO WS-CMD
+           END-STRING
+           CALL "SYSTEM" USING WS-CMD
+
+      *>   Check response
+           MOVE "hub_resp.json"
+               TO WS-WORK-PATH
+           PERFORM READ-JSON-FILE
+           MOVE "work.tmp"
+               TO WS-WORK-PATH
+
+           DISPLAY "  Hub: "
+               TRIM(WS-JBUF)(1:300)
+
+           MOVE 0 TO WS-TALLY-CNT
+           IF WS-JLEN > 0
+               INSPECT
+                   WS-JBUF(1:WS-JLEN)
+                   TALLYING
+                   WS-TALLY-CNT
+                   FOR ALL "FLG"
+           END-IF
+           IF WS-TALLY-CNT > 0
+               MOVE "Y" TO WS-SUCCESS
+               DISPLAY " "
+               DISPLAY "  >>> FLAG FOUND!"
+           END-IF
+           .
+
+      *> ============================================================
+      *> SHELL-EXEC: Execute cmd via Shell API
+      *> ============================================================
+       SHELL-EXEC.
+           MOVE SPACES TO WS-SHELL-DATA
+           MOVE SPACES TO WS-SHELL-CODE
+
+           PERFORM VARYING WS-SHELL-RETRY
+               FROM 1 BY 1
+               UNTIL WS-SHELL-RETRY > 8
+
+      *>       Build payload
+               MOVE SPACES TO WS-PAYLOAD
+               STRING
+                   "{"
+                   WS-QT "apikey"
+                   WS-QT ":"
+                   WS-QT
+                   TRIM(WS-HUB-KEY)
+                   WS-QT ","
+                   WS-QT "cmd"
+                   WS-QT ":"
+                   WS-QT
+                   TRIM(WS-SHELL-CMD)
+                   WS-QT "}"
+                   DELIMITED SIZE
+                   INTO WS-PAYLOAD
+               END-STRING
+
+      *>       Write payload to file
+               OPEN OUTPUT WORK-FILE
+               WRITE WORK-REC
+                   FROM WS-PAYLOAD
+               CLOSE WORK-FILE
+
+      *>       curl POST
+               INITIALIZE WS-CMD
+               STRING
+                   "curl -s "
+                   "-o shell_resp.json"
+                   " -X POST "
+                   TRIM(WS-SHELL-URL)
+                   " -H " WS-QT
+                   "Content-Type: "
+                   "application/json"
+                   WS-QT
+                   " -d @work.tmp"
+                   DELIMITED SIZE
+                   INTO WS-CMD
+               END-STRING
+               CALL "SYSTEM"
+                   USING WS-CMD
+
+      *>       Read response
+               MOVE "shell_resp.json"
+                   TO WS-WORK-PATH
+               PERFORM READ-JSON-FILE
+               MOVE "work.tmp"
+                   TO WS-WORK-PATH
+
+               IF WS-JLEN = 0
+                   DISPLAY "  Empty resp!"
+                   CALL "C$SLEEP"
+                       USING 5
+               ELSE
+      *>           Parse code
+                   MOVE "code"
+                       TO WS-KEY-SEARCH
+                   MOVE 1 TO WS-JPOS
+                   PERFORM FIND-JSON-VAL
+                   MOVE TRIM(WS-JVAL)
+                       TO WS-SHELL-CODE
+                   DISPLAY "  ["
+                       TRIM(WS-SHELL-CMD)
+                       (1:30) "] code="
+                       TRIM(WS-SHELL-CODE)
+
+      *>           Check code
+                   EVALUATE TRUE
+                   WHEN TRIM(WS-SHELL-CODE)
+                       = "-9999"
+                       DISPLAY
+                           "  [RATE] wait 10s"
+                       CALL "C$SLEEP"
+                           USING 10
+                   WHEN TRIM(WS-SHELL-CODE)
+                       = "-735"
+                       DISPLAY
+                           "  [BAN] wait 20s"
+                       CALL "C$SLEEP"
+                           USING 20
+                   WHEN TRIM(WS-SHELL-CODE)
+                       = "-733"
+                       DISPLAY
+                           "  [BAN!] wait 20s"
+                       CALL "C$SLEEP"
+                           USING 20
+                       EXIT PERFORM
+                   WHEN OTHER
+      *>               Success - get data
+                       MOVE "data"
+                           TO WS-KEY-SEARCH
+                       MOVE 1 TO WS-JPOS
+                       PERFORM FIND-JSON-VAL
+                       MOVE WS-JVAL
+                           TO WS-SHELL-DATA
+                       EXIT PERFORM
+                   END-EVALUATE
+               END-IF
+           END-PERFORM
+           .
+
+      *> ============================================================
+      *> READ-JSON-FILE
+      *> ============================================================
+       READ-JSON-FILE.
+           MOVE SPACES TO WS-JBUF
+           MOVE 0 TO WS-JLEN
+           MOVE "N" TO WS-EOF
+
+           OPEN INPUT WORK-FILE
+           IF WS-FS NOT = "00"
+               EXIT PARAGRAPH
+           END-IF
+
+           PERFORM UNTIL WS-EOF = "Y"
+               READ WORK-FILE
+                   INTO WS-LINE
+                   AT END
+                       MOVE "Y"
+                           TO WS-EOF
+                   NOT AT END
+                       MOVE LENGTH(
+                           TRIM(WS-LINE
+                           TRAILING))
+                           TO WS-K
+                       IF WS-K > 0
+                           IF WS-JLEN > 0
+                               ADD 1
+                                 TO WS-JLEN
+                               MOVE " "
+                                 TO WS-JBUF(
+                                 WS-JLEN:1)
+                           END-IF
+                           MOVE WS-LINE(
+                               1:WS-K)
+                               TO WS-JBUF(
+                               WS-JLEN
+                               + 1:WS-K)
+                           ADD WS-K
+                               TO WS-JLEN
+                       END-IF
+               END-READ
+           END-PERFORM
+
+           CLOSE WORK-FILE
+           MOVE "N" TO WS-EOF
+           .
+
+      *> ============================================================
+      *> FIND-JSON-VAL
+      *> ============================================================
+       FIND-JSON-VAL.
+           MOVE SPACES TO WS-JVAL
+           MOVE SPACES TO WS-TMP
+           STRING WS-QT
+               TRIM(WS-KEY-SEARCH)
+               WS-QT
+               DELIMITED SIZE
+               INTO WS-TMP
+           END-STRING
+
+           MOVE 0 TO WS-KEY-POS
+           PERFORM VARYING WS-FJV-POS
+               FROM WS-JPOS BY 1
+               UNTIL WS-FJV-POS
+                   > WS-JLEN
+               OR WS-KEY-POS > 0
+               IF WS-FJV-POS
+                   + LENGTH(
+                   TRIM(WS-TMP))
+                   - 1 <= WS-JLEN
+               AND WS-JBUF(
+                   WS-FJV-POS:
+                   LENGTH(
+                   TRIM(WS-TMP)))
+                   = TRIM(WS-TMP)
+                   MOVE WS-FJV-POS
+                       TO WS-KEY-POS
+               END-IF
+           END-PERFORM
+
+           IF WS-KEY-POS = 0
+               EXIT PARAGRAPH
+           END-IF
+
+           COMPUTE WS-FJV-POS =
+               WS-KEY-POS
+               + LENGTH(
+               TRIM(WS-TMP))
+           PERFORM UNTIL
+               WS-FJV-POS > WS-JLEN
+               OR WS-JBUF(
+               WS-FJV-POS:1) = ":"
+               ADD 1 TO WS-FJV-POS
+           END-PERFORM
+           ADD 1 TO WS-FJV-POS
+
+           PERFORM UNTIL
+               WS-FJV-POS > WS-JLEN
+               OR WS-JBUF(
+               WS-FJV-POS:1)
+               NOT = " "
+               ADD 1 TO WS-FJV-POS
+           END-PERFORM
+
+           IF WS-JBUF(
+               WS-FJV-POS:1) = WS-QT
+               ADD 1 TO WS-FJV-POS
+               MOVE WS-FJV-POS
+                   TO WS-VAL-START
+               PERFORM UNTIL
+                   WS-FJV-POS
+                   > WS-JLEN
+                   IF WS-JBUF(
+                       WS-FJV-POS:1)
+                       = WS-QT
+                       IF WS-FJV-POS
+                           > 1
+                       AND WS-JBUF(
+                           WS-FJV-POS
+                           - 1:1)
+                           = X"5C"
+                           ADD 1
+                           TO WS-FJV-POS
+                       ELSE
+                           EXIT PERFORM
+                       END-IF
+                   ELSE
+                       ADD 1
+                       TO WS-FJV-POS
+                   END-IF
+               END-PERFORM
+               COMPUTE WS-VAL-END =
+                   WS-FJV-POS - 1
+               IF WS-VAL-END
+                   >= WS-VAL-START
+               AND WS-VAL-END
+                   - WS-VAL-START
+                   + 1 <= 8000
+                   MOVE WS-JBUF(
+                       WS-VAL-START:
+                       WS-VAL-END
+                       - WS-VAL-START
+                       + 1) TO WS-JVAL
+               END-IF
+               ADD 1 TO WS-FJV-POS
+           ELSE
+               MOVE WS-FJV-POS
+                   TO WS-VAL-START
+               PERFORM UNTIL
+                   WS-FJV-POS
+                   > WS-JLEN
+                   OR WS-JBUF(
+                   WS-FJV-POS:1)
+                   = ","
+                   OR WS-JBUF(
+                   WS-FJV-POS:1)
+                   = "}"
+                   OR WS-JBUF(
+                   WS-FJV-POS:1)
+                   = "]"
+                   OR WS-JBUF(
+                   WS-FJV-POS:1)
+                   = " "
+                   ADD 1
+                   TO WS-FJV-POS
+               END-PERFORM
+               COMPUTE WS-VAL-END =
+                   WS-FJV-POS - 1
+               IF WS-VAL-END
+                   >= WS-VAL-START
+                   MOVE WS-JBUF(
+                       WS-VAL-START:
+                       WS-VAL-END
+                       - WS-VAL-START
+                       + 1) TO WS-JVAL
+               END-IF
+           END-IF
+           MOVE WS-FJV-POS
+               TO WS-JPOS
+           .
