@@ -238,18 +238,21 @@
                              PIC S9(9) COMP-5.
        01  WS-EXTRACTED-CT    PIC 9(5) VALUE 0.
 
-      *> -- zlib z_stream (64-bit Linux) --
+      *> -- zlib z_stream (64-bit Linux, 112 bytes) --
+      *> Must match C struct layout with padding
        01  WS-ZSTREAM.
            05  WS-Z-NEXT-IN
                           USAGE POINTER.
            05  WS-Z-AVAIL-IN
                           PIC 9(9) COMP-5.
+           05  WS-Z-PAD1  PIC X(4).
            05  WS-Z-TOTAL-IN
                           PIC 9(18) COMP-5.
            05  WS-Z-NEXT-OUT
                           USAGE POINTER.
            05  WS-Z-AVAIL-OUT
                           PIC 9(9) COMP-5.
+           05  WS-Z-PAD2  PIC X(4).
            05  WS-Z-TOTAL-OUT
                           PIC 9(18) COMP-5.
            05  WS-Z-MSG
@@ -264,14 +267,17 @@
                           USAGE POINTER.
            05  WS-Z-DATA-TYPE
                           PIC S9(9) COMP-5.
+           05  WS-Z-PAD3  PIC X(4).
            05  WS-Z-ADLER
-                          PIC 9(9) COMP-5.
+                          PIC 9(18) COMP-5.
            05  WS-Z-RESERVED
                           PIC 9(18) COMP-5.
        01  WS-Z-RET
                           PIC S9(9) COMP-5.
-       01  WS-ZLIB-VER    PIC X(8)
-                          VALUE Z"1.2.13".
+       01  WS-ZLIB-VER    PIC X(10)
+                          VALUE Z"1.3.1".
+       01  WS-ZVER-PTR    USAGE POINTER.
+       01  WS-ZVER-LEN    PIC 9(2).
 
        PROCEDURE DIVISION.
        MAIN-PARA.
