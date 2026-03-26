@@ -177,10 +177,9 @@ jobs:
         env:
           HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
-          AZYL_APP_PORT: ${{ secrets.AZYL_APP_PORT }}
+          SERVER_URL: ${{ secrets.SERVER_URL }}
         run: |
-          SERVER_URL="https://azyl-${AZYL_APP_PORT}.REDACTED/"
-          PAYLOAD="{\"apikey\":\"${HUB_API_KEY}\",\"task\":\"proxy\",\"answer\":{\"url\":\"${SERVER_URL}\",\"sessionID\":\"ci-session-01\"}}"
+          PAYLOAD="{\"apikey\":\"${HUB_API_KEY}\",\"task\":\"proxy\",\"answer\":{\"url\":\"${SERVER_URL}/\",\"sessionID\":\"ci-session-01\"}}"
           echo "Submitting verification request..."
           RESPONSE=$(curl -s -X POST "${HUB_API_URL}/verify" -H "Content-Type: application/json" -d "$PAYLOAD")
           echo "$RESPONSE" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g'
@@ -580,6 +579,79 @@ jobs:
             echo "::error::Flag not found in output"
             exit 1
           fi
+
+  s03e04:
+    name: S03E04 - Negotiations
+    needs: [s03e03]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+          echo "::add-mask::${{ secrets.AZYL_HOST }}"
+          echo "::add-mask::${{ secrets.AZYL_USER }}"
+          echo "::add-mask::${{ secrets.AZYL_APP_PORT }}"
+          echo "::add-mask::${{ secrets.SERVER_URL }}"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZYL_SSH_KEY }}" > ~/.ssh/azyl_key
+          chmod 600 ~/.ssh/azyl_key
+          cat >> ~/.ssh/config <<EOF
+          Host azyl
+            HostName ${{ secrets.AZYL_HOST }}
+            Port ${{ secrets.AZYL_PORT }}
+            User ${{ secrets.AZYL_USER }}
+            IdentityFile ~/.ssh/azyl_key
+            StrictHostKeyChecking no
+          EOF
+
+      - name: Clean old deployment
+        run: |
+          ssh azyl "pgrep -f '[s]03e04-cobol/app' | xargs -r kill 2>/dev/null || true; rm -rf ~/s03e04-deploy"
+
+      - name: Deploy source to azyl
+        run: |
+          ssh azyl "mkdir -p ~/s03e04-deploy"
+          scp S03E04/app.cob azyl:~/s03e04-deploy/
+
+      - name: Compile on azyl
+        run: |
+          ssh azyl "export PATH=~/local/usr/bin:\$PATH && export LD_LIBRARY_PATH=~/local/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH && export COB_CONFIG_DIR=~/local/etc/gnucobol && export CPATH=~/local/usr/include/x86_64-linux-gnu:~/local/usr/include:\$CPATH && export LIBRARY_PATH=~/local/usr/lib/x86_64-linux-gnu:\$LIBRARY_PATH && cd ~/s03e04-deploy && cobc -x -o app app.cob"
+
+      - name: Start server
+        run: |
+          ssh azyl "cd ~/s03e04-deploy && export PATH=~/local/usr/bin:\$PATH && export LD_LIBRARY_PATH=~/local/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH && export COB_CONFIG_DIR=~/local/etc/gnucobol && export HUB_API_KEY='${{ secrets.HUB_API_KEY }}' && export HUB_API_URL='${{ secrets.HUB_API_URL }}' && export OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' && export OPENAI_API_URL='${{ secrets.OPENAI_API_URL }}' && export SERVER_URL='${{ secrets.SERVER_URL }}' && export PORT='${{ secrets.AZYL_APP_PORT }}' && rm -f server.log && nohup ./app > server.log 2>&1 &"
+          sleep 5
+
+      - name: Verify server is running
+        run: |
+          ssh azyl "curl -s http://localhost:${{ secrets.AZYL_APP_PORT }}/ && echo ''"
+
+      - name: Wait for hub to test server
+        run: sleep 60
+
+      - name: Check server logs
+        run: |
+          set +e
+          LOGS=$(ssh azyl "cat ~/s03e04-deploy/server.log 2>/dev/null")
+          MASKED=$(echo "$LOGS" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$LOGS" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          ssh azyl "pgrep -f '[s]03e04-deploy/app' | xargs -r kill 2>/dev/null || true; rm -rf ~/s03e04-deploy"
+          echo "Cleanup done"
 
   s02e02:
     name: S02E02 - Electricity
