@@ -506,8 +506,6 @@
            END-IF
 
            DISPLAY "Nasluchuje na porcie " WS-PORT
-           DISPLAY "URL: https://azyl-" TRIM(WS-PORT-STR)
-               ".REDACTED"
 
       *>   Accept loop
            PERFORM UNTIL WS-RUNNING = "N"
