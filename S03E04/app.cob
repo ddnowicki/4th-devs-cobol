@@ -246,8 +246,7 @@
                TRIM(WS-CONN-COUNT)
                " connections"
 
-      *>   Submit tool + start server
-           PERFORM SUBMIT-TOOL
+      *>   Bind port first, then submit, then serve
            PERFORM START-SERVER
 
            STOP RUN.
@@ -723,7 +722,7 @@
            DISPLAY "  URL: "
                TRIM(WS-TUNNEL-URL)
 
-      *>   Accept loop
+      *>   Accept loop (submit done by CI step)
            PERFORM UNTIL
                WS-RUNNING = "N"
                PERFORM ACCEPT-CONN
@@ -857,6 +856,37 @@
                    "{" WS-QT "output"
                    WS-QT ":"
                    WS-QT "method error"
+                   WS-QT "}"
+                   DELIMITED SIZE
+                   INTO WS-RESPONSE-MSG
+               END-STRING
+               EXIT PARAGRAPH
+           END-IF
+
+      *>   Check /api/report
+           MOVE 0 TO WS-TALLY-CNT
+           INSPECT TRIM(WS-HTTP-PATH)
+               TALLYING WS-TALLY-CNT
+               FOR ALL "/api/report"
+           IF WS-TALLY-CNT > 0
+               DISPLAY "  POST /api/report"
+      *>       Extract params
+               MOVE WS-BODY TO WS-JBUF
+               MOVE LENGTH(TRIM(WS-BODY))
+                   TO WS-JLEN
+               MOVE "params"
+                   TO WS-KEY-SEARCH
+               MOVE 1 TO WS-JPOS
+               PERFORM FIND-JSON-VAL
+               DISPLAY "  Report: "
+                   TRIM(WS-JVAL)(1:200)
+               MOVE SPACES
+                   TO WS-RESPONSE-MSG
+               STRING
+                   "{" WS-QT "output"
+                   WS-QT ":"
+                   WS-QT "Confirmed: "
+                   TRIM(WS-JVAL)(1:200)
                    WS-QT "}"
                    DELIMITED SIZE
                    INTO WS-RESPONSE-MSG

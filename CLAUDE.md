@@ -62,7 +62,7 @@
 - Display response previews for debugging
 
 ## CI/CD (GitHub Actions)
-- Pipeline: rate-limit-gate → S01E01 → S01E02 → S01E03 → S01E04 → S01E05 → S02E01 → S02E02 → S02E03 → S02E04 → S02E05 → S03E01 → S03E02 → S03E03 → S03E04 → S03E05 → S04E01 → S04E02
+- Pipeline: rate-limit-gate → S01E01 → S01E02 → S01E03 → S01E04 → S01E05 → S02E01 → S02E02 → S02E03 → S02E04 → S02E05 → S03E01 → S03E02 → S03E03 → S03E04 → S03E05 → S04E01 → S04E02 → S04E03
 - Each job needs: `actions/checkout@v5`, `gnucobol4` install, env vars for secrets
 - Jobs that use AI need: `OPENAI_API_KEY`, `OPENAI_API_URL` in env
 - Flag detection: `grep -q 'FLG:'` in output, mask with `sed 's/{FLG:[^}]*}/{FLG:XXX}/g'`

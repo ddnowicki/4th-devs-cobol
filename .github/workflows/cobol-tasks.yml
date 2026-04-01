@@ -613,7 +613,7 @@ jobs:
 
       - name: Clean old deployment
         run: |
-          ssh azyl "pgrep -f '[s]03e04-cobol/app' | xargs -r kill 2>/dev/null || true; rm -rf ~/s03e04-deploy"
+          ssh azyl "fuser -k ${{ secrets.AZYL_APP_PORT }}/tcp 2>/dev/null || true; pgrep -f '[s]03e04-deploy/app' | xargs -r kill 2>/dev/null || true; sleep 1; rm -rf ~/s03e04-deploy"
 
       - name: Deploy source to azyl
         run: |
@@ -633,24 +633,47 @@ jobs:
         run: |
           ssh azyl "curl -s http://localhost:${{ secrets.AZYL_APP_PORT }}/ && echo ''"
 
+      - name: Submit to hub for verification
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          SERVER_URL: ${{ secrets.SERVER_URL }}
+        run: |
+          PAYLOAD="{\"apikey\":\"${HUB_API_KEY}\",\"task\":\"negotiations\",\"answer\":{\"tools\":[{\"URL\":\"${SERVER_URL}/api/search\",\"description\":\"Search for an item by name (in Polish). POST {\\\"params\\\":\\\"query\\\"}. Returns cities where available. If item name is censored or replaced with CENZURA, include any context (specs, type, voltage) and the tool will find it.\"},{\"URL\":\"${SERVER_URL}/api/report\",\"description\":\"Call after all searches with {\\\"params\\\":\\\"city1,city2\\\"} to verify final answer. Returns confirmation.\"}]}}"
+          echo "Submitting verification request..."
+          RESPONSE=$(curl -s -X POST "${HUB_API_URL}/verify" -H "Content-Type: application/json" -d "$PAYLOAD")
+          echo "$RESPONSE" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g'
+
       - name: Wait for hub to test server
         run: sleep 60
 
       - name: Check server logs
         run: |
+          ssh azyl "cat ~/s03e04-deploy/server.log 2>/dev/null" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g'
+
+      - name: Check verification result
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+        run: |
           set +e
-          LOGS=$(ssh azyl "cat ~/s03e04-deploy/server.log 2>/dev/null")
-          MASKED=$(echo "$LOGS" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          OUTPUT=$(curl -s -X POST "${HUB_API_URL}/verify" -H "Content-Type: application/json" -d "{\"apikey\":\"${HUB_API_KEY}\",\"task\":\"negotiations\",\"answer\":{\"action\":\"check\"}}")
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
           echo "$MASKED"
-          if echo "$LOGS" | grep -q 'FLG:'; then
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
             echo ""
             echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in check result"
+            exit 1
           fi
 
       - name: Cleanup
         if: always()
         run: |
-          ssh azyl "pgrep -f '[s]03e04-deploy/app' | xargs -r kill 2>/dev/null || true; rm -rf ~/s03e04-deploy"
+          ssh azyl "fuser -k ${{ secrets.AZYL_APP_PORT }}/tcp 2>/dev/null || true; pgrep -f '[s]03e04-deploy/app' | xargs -r kill 2>/dev/null || true; rm -rf ~/s03e04-deploy"
           echo "Cleanup done"
 
   s03e05:
@@ -759,6 +782,48 @@ jobs:
 
       - name: Run
         working-directory: S04E02
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+        run: |
+          set +e
+          OUTPUT=$(./app 2>&1)
+          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
+          echo "$MASKED"
+          if echo "$OUTPUT" | grep -q 'FLG:'; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
+
+  s04e03:
+    name: S04E03 - Azazel
+    needs: [s04e02]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+
+      - name: Compile
+        working-directory: S04E03
+        run: cobc -x -o app app.cob
+
+      - name: Run
+        working-directory: S04E03
         env:
           HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
