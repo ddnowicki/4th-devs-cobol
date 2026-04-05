@@ -732,7 +732,7 @@
            PERFORM UNTIL WS-TAG-PTR >
                LENGTH(TRIM(WS-TAG-SRC))
                MOVE SPACES TO WS-TAG-PART
-               UNSTRING WS-TAG-SRC DELIMITED BY ", "
+               UNSTRING WS-TAG-SRC DELIMITED BY ","
                    INTO WS-TAG-PART
                    WITH POINTER WS-TAG-PTR
                END-UNSTRING
