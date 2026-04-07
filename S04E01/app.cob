@@ -207,6 +207,7 @@
            IF WS-TALLY-CNT > 0
                MOVE "Y" TO WS-FLAG-FOUND
                DISPLAY "  >>> FLAG FOUND <<<"
+               DISPLAY TRIM(WS-JBUF(1:WS-JLEN))
            ELSE
                MOVE WS-JBUF(1:WS-JLEN)
                    TO WS-DET-ERROR
@@ -626,6 +627,10 @@
                                TO WS-FLAG-FOUND
                            DISPLAY
                              "  >>> FLAG <<<"
+                           DISPLAY
+                             TRIM(WS-TOOL-RESULT(
+                             1:WS-TOOL-RESULT-LEN
+                             ))
                            MOVE "Y"
                                TO WS-AG-DONE
                        ELSE
@@ -670,6 +675,7 @@
                    IF WS-TALLY-CNT > 0
                        MOVE "Y"
                            TO WS-FLAG-FOUND
+                       DISPLAY TRIM(WS-JVAL)
                        MOVE "Y"
                            TO WS-AG-DONE
                    ELSE
