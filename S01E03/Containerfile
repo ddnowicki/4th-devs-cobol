@@ -7,8 +7,9 @@ RUN apt-get update -qq && \
 
 WORKDIR /app
 COPY app.cob ./
+COPY copybooks/ ./copybooks/
 
-RUN cobc -x -free -o app app.cob -Q "-Wl,--no-as-needed" -lcurl
+RUN cobc -x -free -I copybooks/ -o app app.cob -Q "-Wl,--no-as-needed" -lcurl
 
 RUN mkdir -p /tmp/sessions
 

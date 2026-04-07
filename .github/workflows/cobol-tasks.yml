@@ -153,8 +153,9 @@ jobs:
 
       - name: Deploy source to azyl
         run: |
-          ssh azyl "mkdir -p ~/cobol-deploy"
+          ssh azyl "mkdir -p ~/cobol-deploy/copybooks"
           scp S01E03/app.cob S01E03/Containerfile S01E03/start.sh azyl:~/cobol-deploy/
+          scp copybooks/*.cpy azyl:~/cobol-deploy/copybooks/
 
       - name: Build container on azyl
         run: |
