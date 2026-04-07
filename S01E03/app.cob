@@ -28,86 +28,65 @@
        01  SESSION-RECORD            PIC X(4000).
 
        WORKING-STORAGE SECTION.
-      *> -- Socket variables --
-       01  WS-SERVER-FD              PIC S9(9) COMP-5.
-       01  WS-CLIENT-FD              PIC S9(9) COMP-5.
-       01  WS-RESULT                 PIC S9(9) COMP-5.
-       01  WS-ONE                    PIC S9(9) COMP-5 VALUE 1.
-       01  WS-BACKLOG                PIC S9(9) COMP-5 VALUE 10.
+      *> === Environment (via copybook) ===
+       COPY ENVLOAD-WS.
 
-      *> -- sockaddr_in structure (16 bytes) --
-       01  WS-SOCKADDR.
-           05  WS-SIN-FAMILY         PIC 9(4) COMP-5.
-           05  WS-SIN-PORT           PIC 9(4) COMP-5.
-           05  WS-SIN-ADDR           PIC 9(9) COMP-5.
-           05  WS-SIN-ZERO           PIC X(8).
+      *> === Constants ===
+       01  WS-MAX-ITERATIONS        PIC 9(1) VALUE 8.
+       78  AF-INET                  VALUE 2.
+       78  SOCK-STREAM              VALUE 1.
+       78  SOL-SOCKET               VALUE 1.
+       78  SO-REUSEADDR             VALUE 2.
+       78  INADDR-ANY               VALUE 0.
+       78  CURLOPT-WRITEDATA        VALUE 10001.
+       78  CURLOPT-URL              VALUE 10002.
+       78  CURLOPT-POST             VALUE 47.
+       78  CURLOPT-POSTFIELDS       VALUE 10015.
+       78  CURLOPT-HTTPHEADER       VALUE 10023.
+       78  CURLOPT-TIMEOUT          VALUE 13.
+       78  CURLOPT-POSTFIELDSIZE    VALUE 60.
+       78  CURL-GLOBAL-DEFAULT      VALUE 3.
 
-      *> -- Read/Write buffers --
-       01  WS-READ-BUF              PIC X(8000).
-       01  WS-READ-LEN              PIC S9(9) COMP-5.
-       01  WS-WRITE-BUF             PIC X(16000).
-       01  WS-WRITE-LEN             PIC S9(9) COMP-5.
+      *> === Shared WS (via copybook) ===
+       COPY JSONPARSE-WS.
 
-      *> -- HTTP parsing --
-       01  WS-HTTP-METHOD            PIC X(10).
-       01  WS-HTTP-PATH             PIC X(200).
-       01  WS-BODY                  PIC X(4000).
-       01  WS-BODY-START            PIC 9(5).
-
-      *> -- JSON fields --
-       01  WS-SESSION-ID            PIC X(100).
-       01  WS-USER-MSG              PIC X(2000).
-       01  WS-RESPONSE-MSG          PIC X(4000).
-
-      *> -- Config --
-       01  WS-PORT                  PIC 9(5).
-       01  WS-PORT-STR              PIC X(10).
-       01  WS-OPENAI-KEY            PIC X(200).
-       01  WS-HUB-KEY               PIC X(100).
-       01  WS-MODEL                 PIC X(30).
-       01  WS-QT                    PIC X(1) VALUE '"'.
-
-      *> -- File paths --
+      *> === File I/O ===
        01  WS-FILE-STATUS           PIC XX.
        01  WS-RESP-PATH             PIC X(100) VALUE
            "/tmp/cobol_resp.json".
        01  WS-SESSION-DIR           PIC X(100) VALUE
            "/tmp/sessions/".
        01  WS-SESSION-FILE          PIC X(200).
-       01  WS-HUB-URL               PIC X(200).
-       01  WS-PKG-API-URL           PIC X(200).
-       01  WS-OPENAI-URL            PIC X(200).
+       01  WS-EOF                   PIC X(1).
+       01  WS-LINE                  PIC X(4000).
 
-      *> -- POSIX mkdir --
-       01  WS-MKDIR-PATH.
-           05  FILLER               PIC X(14)
-               VALUE "/tmp/sessions".
-           05  FILLER               PIC X(1) VALUE X"00".
-       01  WS-MKDIR-MODE            PIC S9(9) COMP-5 VALUE 511.
-       01  WS-MKDIR-RC              PIC S9(9) COMP-5.
-
-      *> -- Work variables --
-       01  WS-IDX                   PIC 9(5).
-       01  WS-IDX2                  PIC 9(5).
-       01  WS-TALLY-CNT             PIC 9(4).
-       01  WS-TEMP                  PIC X(4000).
-       01  WS-TEMP2                 PIC X(4000).
-       01  WS-EOF-FLAG              PIC X(1).
-       01  WS-RESP-LINE             PIC X(4000).
-       01  WS-RUNNING               PIC X(1) VALUE "Y".
-
-      *> -- htons helper --
+      *> === HTTP / Socket ===
+       01  WS-SERVER-FD              PIC S9(9) COMP-5.
+       01  WS-CLIENT-FD              PIC S9(9) COMP-5.
+       01  WS-RESULT                 PIC S9(9) COMP-5.
+       01  WS-ONE                    PIC S9(9) COMP-5 VALUE 1.
+       01  WS-BACKLOG                PIC S9(9) COMP-5 VALUE 10.
+       01  WS-SOCKADDR.
+           05  WS-SIN-FAMILY         PIC 9(4) COMP-5.
+           05  WS-SIN-PORT           PIC 9(4) COMP-5.
+           05  WS-SIN-ADDR           PIC 9(9) COMP-5.
+           05  WS-SIN-ZERO           PIC X(8).
+       01  WS-READ-BUF              PIC X(8000).
+       01  WS-READ-LEN              PIC S9(9) COMP-5.
+       01  WS-WRITE-BUF             PIC X(16000).
+       01  WS-WRITE-LEN             PIC S9(9) COMP-5.
+       01  WS-HTTP-METHOD            PIC X(10).
+       01  WS-HTTP-PATH             PIC X(200).
+       01  WS-BODY                  PIC X(4000).
+       01  WS-BODY-START            PIC 9(5).
+       01  WS-PORT                  PIC 9(5).
+       01  WS-PORT-STR              PIC X(10).
        01  WS-PORT-HI               PIC 9(3).
        01  WS-PORT-LO               PIC 9(3).
+       01  WS-RUNNING               PIC X(1) VALUE "Y".
+       01  WS-PKG-API-URL           PIC X(200).
 
-      *> -- Socket constants --
-       78  AF-INET                  VALUE 2.
-       78  SOCK-STREAM              VALUE 1.
-       78  SOL-SOCKET               VALUE 1.
-       78  SO-REUSEADDR             VALUE 2.
-       78  INADDR-ANY               VALUE 0.
-
-      *> -- libcurl handles and pointers --
+      *> === libcurl ===
        01  WS-CURL-HANDLE           USAGE POINTER.
        01  WS-CURL-RC               PIC S9(9) COMP-5.
        01  WS-OPENAI-HDRS           USAGE POINTER.
@@ -122,49 +101,39 @@
        01  WS-FOPEN-MODE.
            05  FILLER               PIC X(1) VALUE "w".
            05  FILLER               PIC X(1) VALUE X"00".
-
-      *> -- POST body buffer --
        01  WS-POST-BODY             PIC X(48000).
        01  WS-POST-LEN              PIC S9(9) COMP-5.
 
-      *> -- libcurl constants --
-       78  CURLOPT-WRITEDATA        VALUE 10001.
-       78  CURLOPT-URL              VALUE 10002.
-       78  CURLOPT-POST             VALUE 47.
-       78  CURLOPT-POSTFIELDS       VALUE 10015.
-       78  CURLOPT-HTTPHEADER       VALUE 10023.
-       78  CURLOPT-TIMEOUT          VALUE 13.
-       78  CURLOPT-POSTFIELDSIZE    VALUE 60.
-       78  CURL-GLOBAL-DEFAULT      VALUE 3.
+      *> === POSIX mkdir ===
+       01  WS-MKDIR-PATH.
+           05  FILLER               PIC X(14)
+               VALUE "/tmp/sessions".
+           05  FILLER               PIC X(1) VALUE X"00".
+       01  WS-MKDIR-MODE            PIC S9(9) COMP-5 VALUE 511.
+       01  WS-MKDIR-RC              PIC S9(9) COMP-5.
 
-      *> -- LLM / Tool calling --
-       01  WS-LLM-ITERATION         PIC 9(1).
-       01  WS-MAX-ITERATIONS        PIC 9(1) VALUE 8.
-       01  WS-HAS-TOOL-CALLS        PIC X(1).
-       01  WS-FINISH-REASON         PIC X(20).
-       01  WS-LLM-CONTENT           PIC X(4000).
-
-      *> -- Large JSON buffer for API response parsing --
-       01  WS-JBUF                  PIC X(32000).
-       01  WS-JLEN                  PIC 9(5).
-       01  WS-JPOS                  PIC 9(5).
-       01  WS-JVAL                  PIC X(4000).
-
-      *> -- JSON parsing temps --
-       01  WS-KEY-SEARCH            PIC X(50).
-       01  WS-KEY-POS               PIC 9(5).
-       01  WS-VAL-START             PIC 9(5).
-       01  WS-VAL-END               PIC 9(5).
+      *> === JSON Parsing (task-specific) ===
        01  WS-SCAN-POS              PIC 9(5).
        01  WS-BRACKET-DEPTH         PIC 9(2).
-       01  WS-FJV-POS               PIC 9(5).
        01  WS-ARR-START             PIC 9(5).
        01  WS-ARR-END               PIC 9(5).
        01  WS-OBJ-START             PIC 9(5).
        01  WS-OBJ-END               PIC 9(5).
        01  WS-OBJ-BUF               PIC X(4000).
+       01  WS-JBUF-SAVE             PIC X(32000).
+       01  WS-JLEN-SAVE             PIC 9(5).
 
-      *> -- Tool call fields --
+      *> === Task Data - Session/Chat ===
+       01  WS-SESSION-ID            PIC X(100).
+       01  WS-USER-MSG              PIC X(2000).
+       01  WS-RESPONSE-MSG          PIC X(4000).
+       01  WS-MODEL                 PIC X(30).
+       01  WS-MESSAGES-BUF           PIC X(32000).
+       01  WS-MSG-LEN                PIC 9(5).
+       01  WS-MSG-FIRST              PIC X(1).
+       01  WS-SESS-LINE              PIC X(4000).
+
+      *> === Tool Call Fields ===
        01  WS-TC-ID                  PIC X(100).
        01  WS-TC-NAME                PIC X(50).
        01  WS-TC-ARGS                PIC X(1000).
@@ -173,16 +142,20 @@
        01  WS-TC-CODE                PIC X(100).
        01  WS-TOOL-RESULT            PIC X(4000).
 
-      *> -- Session history building --
-       01  WS-MESSAGES-BUF           PIC X(32000).
-       01  WS-MSG-LEN                PIC 9(5).
-       01  WS-MSG-FIRST              PIC X(1).
-       01  WS-SESS-LINE              PIC X(4000).
-       01  WS-JBUF-SAVE              PIC X(32000).
-       01  WS-JLEN-SAVE              PIC 9(5).
+      *> === LLM Loop ===
+       01  WS-LLM-ITERATION         PIC 9(1).
+       01  WS-HAS-TOOL-CALLS        PIC X(1).
+       01  WS-FINISH-REASON         PIC X(20).
+       01  WS-LLM-CONTENT           PIC X(4000).
 
-      *> -- Reactor interception --
+      *> === Reactor Interception ===
        01  WS-ALL-CONTENT            PIC X(16000).
+
+      *> === Control Flow ===
+       01  WS-IDX                   PIC 9(5).
+       01  WS-IDX2                  PIC 9(5).
+       01  WS-TALLY-CNT             PIC 9(4).
+       01  WS-TEMP2                 PIC X(4000).
 
       *> -- System prompt (escaped for JSON) --
        01  WS-SYS-PROMPT             PIC X(1000) VALUE
@@ -222,37 +195,17 @@
            DISPLAY "=== COBOL HTTP SERVER (libcurl) ==="
 
       *>   Load config from environment
+           PERFORM LOAD-ENV-VARS
+
            ACCEPT WS-PORT-STR FROM ENVIRONMENT "PORT"
            IF WS-PORT-STR = SPACES
                MOVE "16439" TO WS-PORT-STR
            END-IF
            MOVE NUMVAL(TRIM(WS-PORT-STR)) TO WS-PORT
 
-           ACCEPT WS-OPENAI-KEY FROM ENVIRONMENT "OPENAI_API_KEY"
-           ACCEPT WS-HUB-KEY FROM ENVIRONMENT "HUB_API_KEY"
            ACCEPT WS-MODEL FROM ENVIRONMENT "MODEL"
            IF WS-MODEL = SPACES
                MOVE "gpt-4.1-mini" TO WS-MODEL
-           END-IF
-
-           ACCEPT WS-HUB-URL FROM ENVIRONMENT "HUB_API_URL"
-           ACCEPT WS-OPENAI-URL FROM ENVIRONMENT "OPENAI_API_URL"
-
-           IF WS-OPENAI-KEY = SPACES
-               DISPLAY "BLAD: Ustaw OPENAI_API_KEY!"
-               STOP RUN
-           END-IF
-           IF WS-HUB-KEY = SPACES
-               DISPLAY "BLAD: Ustaw HUB_API_KEY!"
-               STOP RUN
-           END-IF
-           IF WS-HUB-URL = SPACES
-               DISPLAY "BLAD: Ustaw HUB_API_URL!"
-               STOP RUN
-           END-IF
-           IF WS-OPENAI-URL = SPACES
-               DISPLAY "BLAD: Ustaw OPENAI_API_URL!"
-               STOP RUN
            END-IF
 
            STRING FUNCTION TRIM(WS-HUB-URL)
@@ -647,25 +600,25 @@
            END-STRING
 
       *>   Append user message to session file (JSONL)
-           INITIALIZE WS-TEMP
+           INITIALIZE WS-TMP
            STRING
                '{"role":"user","content":'
                WS-QT
                DELIMITED SIZE
-               INTO WS-TEMP
+               INTO WS-TMP
            END-STRING
            PERFORM APPEND-ESCAPED-USER-MSG
            STRING
-               TRIM(WS-TEMP) WS-QT "}"
+               TRIM(WS-TMP) WS-QT "}"
                DELIMITED SIZE
-               INTO WS-TEMP
+               INTO WS-TMP
            END-STRING
 
            OPEN EXTEND SESSION-FILE
            IF WS-FILE-STATUS NOT = "00"
                OPEN OUTPUT SESSION-FILE
            END-IF
-           WRITE SESSION-RECORD FROM WS-TEMP
+           WRITE SESSION-RECORD FROM WS-TMP
            CLOSE SESSION-FILE
 
       *>   Run LLM loop
@@ -676,14 +629,14 @@
       *>   Build final JSON response
            PERFORM ESCAPE-RESPONSE-MSG
 
-           INITIALIZE WS-TEMP
+           INITIALIZE WS-TMP
            STRING
                "{" WS-QT "msg" WS-QT ":"
                WS-QT TRIM(WS-TEMP2) WS-QT "}"
                DELIMITED SIZE
-               INTO WS-TEMP
+               INTO WS-TMP
            END-STRING
-           MOVE WS-TEMP TO WS-RESPONSE-MSG
+           MOVE WS-TMP TO WS-RESPONSE-MSG
            .
 
       *> ============================================================
@@ -727,25 +680,25 @@
            MOVE 0 TO WS-MSG-LEN
 
       *>   Start with system message
-           INITIALIZE WS-TEMP
+           INITIALIZE WS-TMP
            STRING
                '[{"role":"system","content":'
                WS-QT TRIM(WS-SYS-PROMPT) WS-QT "}"
                DELIMITED SIZE
-               INTO WS-TEMP
+               INTO WS-TMP
            END-STRING
-           MOVE TRIM(WS-TEMP) TO WS-MESSAGES-BUF
+           MOVE TRIM(WS-TMP) TO WS-MESSAGES-BUF
            MOVE LENGTH(TRIM(WS-MESSAGES-BUF)) TO WS-MSG-LEN
 
       *>   Read session file and append each JSONL line
-           MOVE "N" TO WS-EOF-FLAG
+           MOVE "N" TO WS-EOF
            OPEN INPUT SESSION-FILE
            IF WS-FILE-STATUS = "00"
-               PERFORM UNTIL WS-EOF-FLAG = "Y"
+               PERFORM UNTIL WS-EOF = "Y"
                    MOVE SPACES TO WS-SESS-LINE
                    READ SESSION-FILE INTO WS-SESS-LINE
                        AT END
-                           MOVE "Y" TO WS-EOF-FLAG
+                           MOVE "Y" TO WS-EOF
                        NOT AT END
                            IF TRIM(WS-SESS-LINE) NOT = SPACES
                                ADD 1 TO WS-MSG-LEN
@@ -763,7 +716,7 @@
                    END-READ
                END-PERFORM
                CLOSE SESSION-FILE
-               MOVE "N" TO WS-EOF-FLAG
+               MOVE "N" TO WS-EOF
            END-IF
 
       *>   Close the array
@@ -779,15 +732,15 @@
            MOVE 0 TO WS-POST-LEN
 
       *>   Prefix: {"model":"...","messages":
-           INITIALIZE WS-TEMP
+           INITIALIZE WS-TMP
            STRING
                '{"model":' WS-QT TRIM(WS-MODEL) WS-QT
                ',"messages":'
                DELIMITED SIZE
-               INTO WS-TEMP
+               INTO WS-TMP
            END-STRING
-           MOVE LENGTH(TRIM(WS-TEMP)) TO WS-IDX
-           MOVE WS-TEMP(1:WS-IDX)
+           MOVE LENGTH(TRIM(WS-TMP)) TO WS-IDX
+           MOVE WS-TMP(1:WS-IDX)
                TO WS-POST-BODY(1:WS-IDX)
            MOVE WS-IDX TO WS-POST-LEN
 
@@ -797,17 +750,17 @@
            ADD WS-MSG-LEN TO WS-POST-LEN
 
       *>   Suffix: ,"tools":[...],"tool_choice":"auto",...}
-           INITIALIZE WS-TEMP
+           INITIALIZE WS-TMP
            STRING
                ',"tools":'
                TRIM(WS-TOOLS-JSON)
                ',"tool_choice":"auto"'
                ',"temperature":0.3}'
                DELIMITED SIZE
-               INTO WS-TEMP
+               INTO WS-TMP
            END-STRING
-           MOVE LENGTH(TRIM(WS-TEMP)) TO WS-IDX
-           MOVE WS-TEMP(1:WS-IDX)
+           MOVE LENGTH(TRIM(WS-TMP)) TO WS-IDX
+           MOVE WS-TMP(1:WS-IDX)
                TO WS-POST-BODY(WS-POST-LEN + 1:WS-IDX)
            ADD WS-IDX TO WS-POST-LEN
            .
@@ -878,21 +831,21 @@
 
       *>   Save assistant message to session (text-only case)
            IF WS-HAS-TOOL-CALLS = "N"
-               INITIALIZE WS-TEMP
+               INITIALIZE WS-TMP
                STRING
                    '{"role":"assistant","content":'
                    WS-QT
                    DELIMITED SIZE
-                   INTO WS-TEMP
+                   INTO WS-TMP
                END-STRING
                PERFORM APPEND-ESCAPED-CONTENT
                STRING
-                   TRIM(WS-TEMP) WS-QT "}"
+                   TRIM(WS-TMP) WS-QT "}"
                    DELIMITED SIZE
-                   INTO WS-TEMP
+                   INTO WS-TMP
                END-STRING
                OPEN EXTEND SESSION-FILE
-               WRITE SESSION-RECORD FROM WS-TEMP
+               WRITE SESSION-RECORD FROM WS-TMP
                CLOSE SESSION-FILE
            END-IF
            .
@@ -967,23 +920,23 @@
                    TRIM(WS-TOOL-RESULT)(1:300)
 
       *>       Save tool result to session file
-               INITIALIZE WS-TEMP
+               INITIALIZE WS-TMP
                STRING
                    '{"role":"tool","tool_call_id":'
                    WS-QT TRIM(WS-TC-ID) WS-QT
                    ',"content":'
                    WS-QT
                    DELIMITED SIZE
-                   INTO WS-TEMP
+                   INTO WS-TMP
                END-STRING
                PERFORM APPEND-ESCAPED-TOOL-RESULT
                STRING
-                   TRIM(WS-TEMP) WS-QT "}"
+                   TRIM(WS-TMP) WS-QT "}"
                    DELIMITED SIZE
-                   INTO WS-TEMP
+                   INTO WS-TMP
                END-STRING
                OPEN EXTEND SESSION-FILE
-               WRITE SESSION-RECORD FROM WS-TEMP
+               WRITE SESSION-RECORD FROM WS-TMP
                CLOSE SESSION-FILE
            END-PERFORM
            .
@@ -1025,9 +978,9 @@
                COMPUTE WS-IDX = WS-OBJ-END - WS-OBJ-START + 1
                IF WS-IDX <= 4000
                    MOVE WS-JBUF(WS-OBJ-START:WS-IDX)
-                       TO WS-TEMP
+                       TO WS-TMP
                    OPEN EXTEND SESSION-FILE
-                   WRITE SESSION-RECORD FROM WS-TEMP
+                   WRITE SESSION-RECORD FROM WS-TMP
                    CLOSE SESSION-FILE
                END-IF
            END-IF
@@ -1042,19 +995,19 @@
            INITIALIZE WS-TC-CODE
 
       *>   Unescape backslash-quotes
-           INITIALIZE WS-TEMP
+           INITIALIZE WS-TMP
            MOVE 1 TO WS-IDX2
            PERFORM VARYING WS-IDX FROM 1 BY 1
                UNTIL WS-IDX > LENGTH(TRIM(WS-TC-ARGS))
                IF WS-TC-ARGS(WS-IDX:1) = "\"
                    AND WS-IDX < LENGTH(TRIM(WS-TC-ARGS))
                    AND WS-TC-ARGS(WS-IDX + 1:1) = WS-QT
-                   MOVE WS-QT TO WS-TEMP(WS-IDX2:1)
+                   MOVE WS-QT TO WS-TMP(WS-IDX2:1)
                    ADD 1 TO WS-IDX2
                    ADD 1 TO WS-IDX
                ELSE
                    MOVE WS-TC-ARGS(WS-IDX:1)
-                       TO WS-TEMP(WS-IDX2:1)
+                       TO WS-TMP(WS-IDX2:1)
                    ADD 1 TO WS-IDX2
                END-IF
            END-PERFORM
@@ -1062,8 +1015,8 @@
       *>   Parse unescaped JSON
            MOVE WS-JBUF TO WS-JBUF-SAVE
            MOVE WS-JLEN TO WS-JLEN-SAVE
-           MOVE WS-TEMP TO WS-JBUF
-           MOVE LENGTH(TRIM(WS-TEMP)) TO WS-JLEN
+           MOVE WS-TMP TO WS-JBUF
+           MOVE LENGTH(TRIM(WS-TMP)) TO WS-JLEN
 
            MOVE "packageid" TO WS-KEY-SEARCH
            MOVE 1 TO WS-JPOS
@@ -1173,14 +1126,14 @@
            END-IF
 
            INITIALIZE WS-ALL-CONTENT
-           MOVE "N" TO WS-EOF-FLAG
+           MOVE "N" TO WS-EOF
            OPEN INPUT SESSION-FILE
            IF WS-FILE-STATUS = "00"
-               PERFORM UNTIL WS-EOF-FLAG = "Y"
+               PERFORM UNTIL WS-EOF = "Y"
                    MOVE SPACES TO WS-SESS-LINE
                    READ SESSION-FILE INTO WS-SESS-LINE
                        AT END
-                           MOVE "Y" TO WS-EOF-FLAG
+                           MOVE "Y" TO WS-EOF
                        NOT AT END
                            STRING TRIM(WS-ALL-CONTENT) " "
                                TRIM(WS-SESS-LINE)
@@ -1190,7 +1143,7 @@
                    END-READ
                END-PERFORM
                CLOSE SESSION-FILE
-               MOVE "N" TO WS-EOF-FLAG
+               MOVE "N" TO WS-EOF
            END-IF
 
            STRING TRIM(WS-ALL-CONTENT) " "
@@ -1244,22 +1197,22 @@
       *> ============================================================
        READ-TOOL-RESPONSE.
            INITIALIZE WS-TOOL-RESULT
-           MOVE "N" TO WS-EOF-FLAG
+           MOVE "N" TO WS-EOF
 
            OPEN INPUT RESP-FILE
            IF WS-FILE-STATUS = "00"
-               PERFORM UNTIL WS-EOF-FLAG = "Y"
-                   MOVE SPACES TO WS-RESP-LINE
-                   READ RESP-FILE INTO WS-RESP-LINE
+               PERFORM UNTIL WS-EOF = "Y"
+                   MOVE SPACES TO WS-LINE
+                   READ RESP-FILE INTO WS-LINE
                        AT END
-                           MOVE "Y" TO WS-EOF-FLAG
+                           MOVE "Y" TO WS-EOF
                        NOT AT END
                            IF WS-TOOL-RESULT = SPACES
-                               MOVE TRIM(WS-RESP-LINE)
+                               MOVE TRIM(WS-LINE)
                                    TO WS-TOOL-RESULT
                            ELSE
                                STRING TRIM(WS-TOOL-RESULT)
-                                   " " TRIM(WS-RESP-LINE)
+                                   " " TRIM(WS-LINE)
                                    DELIMITED SIZE
                                    INTO WS-TOOL-RESULT
                                END-STRING
@@ -1267,7 +1220,7 @@
                    END-READ
                END-PERFORM
                CLOSE RESP-FILE
-               MOVE "N" TO WS-EOF-FLAG
+               MOVE "N" TO WS-EOF
            ELSE
                MOVE '{"error":"cannot read response"}'
                    TO WS-TOOL-RESULT
@@ -1280,18 +1233,18 @@
        READ-JSON-FILE.
            MOVE SPACES TO WS-JBUF
            MOVE 0 TO WS-JLEN
-           MOVE "N" TO WS-EOF-FLAG
+           MOVE "N" TO WS-EOF
            OPEN INPUT RESP-FILE
            IF WS-FILE-STATUS NOT = "00"
                EXIT PARAGRAPH
            END-IF
-           PERFORM UNTIL WS-EOF-FLAG = "Y"
-               READ RESP-FILE INTO WS-RESP-LINE
+           PERFORM UNTIL WS-EOF = "Y"
+               READ RESP-FILE INTO WS-LINE
                    AT END
-                       MOVE "Y" TO WS-EOF-FLAG
+                       MOVE "Y" TO WS-EOF
                    NOT AT END
-                       MOVE TRIM(WS-RESP-LINE) TO WS-RESP-LINE
-                       MOVE LENGTH(TRIM(WS-RESP-LINE))
+                       MOVE TRIM(WS-LINE) TO WS-LINE
+                       MOVE LENGTH(TRIM(WS-LINE))
                            TO WS-IDX
                        IF WS-IDX > 0
                            IF WS-JLEN > 0
@@ -1299,104 +1252,14 @@
                                MOVE " "
                                    TO WS-JBUF(WS-JLEN:1)
                            END-IF
-                           MOVE WS-RESP-LINE(1:WS-IDX)
+                           MOVE WS-LINE(1:WS-IDX)
                                TO WS-JBUF(WS-JLEN + 1:WS-IDX)
                            ADD WS-IDX TO WS-JLEN
                        END-IF
                END-READ
            END-PERFORM
            CLOSE RESP-FILE
-           MOVE "N" TO WS-EOF-FLAG
-           .
-
-      *> ============================================================
-      *> FIND-JSON-VAL: Find "key":"value" in WS-JBUF
-      *> ============================================================
-       FIND-JSON-VAL.
-           MOVE SPACES TO WS-JVAL
-           MOVE SPACES TO WS-TEMP
-           STRING WS-QT TRIM(WS-KEY-SEARCH) WS-QT
-               DELIMITED SIZE INTO WS-TEMP
-           END-STRING
-
-           MOVE 0 TO WS-KEY-POS
-           PERFORM VARYING WS-FJV-POS FROM WS-JPOS BY 1
-               UNTIL WS-FJV-POS > WS-JLEN
-               OR WS-KEY-POS > 0
-               IF WS-FJV-POS + LENGTH(TRIM(WS-TEMP)) - 1
-                   <= WS-JLEN
-               AND WS-JBUF(WS-FJV-POS:LENGTH(TRIM(WS-TEMP)))
-                   = TRIM(WS-TEMP)
-                   MOVE WS-FJV-POS TO WS-KEY-POS
-               END-IF
-           END-PERFORM
-
-           IF WS-KEY-POS = 0
-               EXIT PARAGRAPH
-           END-IF
-
-           COMPUTE WS-FJV-POS =
-               WS-KEY-POS + LENGTH(TRIM(WS-TEMP))
-           PERFORM UNTIL WS-FJV-POS > WS-JLEN
-               OR WS-JBUF(WS-FJV-POS:1) = ":"
-               ADD 1 TO WS-FJV-POS
-           END-PERFORM
-           ADD 1 TO WS-FJV-POS
-
-           PERFORM UNTIL WS-FJV-POS > WS-JLEN
-               OR WS-JBUF(WS-FJV-POS:1) NOT = " "
-               ADD 1 TO WS-FJV-POS
-           END-PERFORM
-
-           IF WS-JBUF(WS-FJV-POS:1) = WS-QT
-               ADD 1 TO WS-FJV-POS
-               MOVE WS-FJV-POS TO WS-VAL-START
-               PERFORM UNTIL WS-FJV-POS > WS-JLEN
-                   IF WS-JBUF(WS-FJV-POS:1) = WS-QT
-                       IF WS-FJV-POS > 1
-                           IF WS-JBUF(WS-FJV-POS - 1:1)
-                               NOT = "\"
-                               EXIT PERFORM
-                           END-IF
-                       ELSE
-                           EXIT PERFORM
-                       END-IF
-                   END-IF
-                   ADD 1 TO WS-FJV-POS
-               END-PERFORM
-               COMPUTE WS-VAL-END = WS-FJV-POS - 1
-               IF WS-VAL-END >= WS-VAL-START
-                   COMPUTE WS-IDX =
-                       WS-VAL-END - WS-VAL-START + 1
-                   IF WS-IDX > 4000
-                       MOVE 4000 TO WS-IDX
-                   END-IF
-                   MOVE WS-JBUF(WS-VAL-START:WS-IDX)
-                       TO WS-JVAL
-               END-IF
-               ADD 1 TO WS-FJV-POS
-           ELSE
-               IF WS-JBUF(WS-FJV-POS:4) = "null"
-                   MOVE SPACES TO WS-JVAL
-                   ADD 4 TO WS-FJV-POS
-               ELSE
-                   MOVE WS-FJV-POS TO WS-VAL-START
-                   PERFORM UNTIL WS-FJV-POS > WS-JLEN
-                       OR WS-JBUF(WS-FJV-POS:1) = ","
-                       OR WS-JBUF(WS-FJV-POS:1) = "}"
-                       OR WS-JBUF(WS-FJV-POS:1) = "]"
-                       OR WS-JBUF(WS-FJV-POS:1) = " "
-                       ADD 1 TO WS-FJV-POS
-                   END-PERFORM
-                   COMPUTE WS-VAL-END = WS-FJV-POS - 1
-                   IF WS-VAL-END >= WS-VAL-START
-                       MOVE WS-JBUF(WS-VAL-START:
-                           WS-VAL-END - WS-VAL-START + 1)
-                           TO WS-JVAL
-                   END-IF
-               END-IF
-           END-IF
-           MOVE WS-FJV-POS TO WS-JPOS
+           MOVE "N" TO WS-EOF
            .
 
       *> ============================================================
@@ -1544,74 +1407,74 @@
            .
 
       *> ============================================================
-      *> APPEND-ESCAPED-USER-MSG: Escape WS-USER-MSG into WS-TEMP
+      *> APPEND-ESCAPED-USER-MSG: Escape WS-USER-MSG into WS-TMP
       *> ============================================================
        APPEND-ESCAPED-USER-MSG.
-           MOVE LENGTH(TRIM(WS-TEMP)) TO WS-IDX2
+           MOVE LENGTH(TRIM(WS-TMP)) TO WS-IDX2
            ADD 1 TO WS-IDX2
            PERFORM VARYING WS-IDX FROM 1 BY 1
                UNTIL WS-IDX > LENGTH(TRIM(WS-USER-MSG))
                EVALUATE WS-USER-MSG(WS-IDX:1)
                    WHEN WS-QT
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE WS-QT TO WS-TEMP(WS-IDX2:1)
+                       MOVE WS-QT TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN "\"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN X"0A"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "n" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "n" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN X"0D"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "r" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "r" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN OTHER
                        MOVE WS-USER-MSG(WS-IDX:1)
-                           TO WS-TEMP(WS-IDX2:1)
+                           TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                END-EVALUATE
            END-PERFORM
            .
 
       *> ============================================================
-      *> APPEND-ESCAPED-CONTENT: Escape WS-LLM-CONTENT into WS-TEMP
+      *> APPEND-ESCAPED-CONTENT: Escape WS-LLM-CONTENT into WS-TMP
       *> ============================================================
        APPEND-ESCAPED-CONTENT.
-           MOVE LENGTH(TRIM(WS-TEMP)) TO WS-IDX2
+           MOVE LENGTH(TRIM(WS-TMP)) TO WS-IDX2
            ADD 1 TO WS-IDX2
            PERFORM VARYING WS-IDX FROM 1 BY 1
                UNTIL WS-IDX > LENGTH(TRIM(WS-LLM-CONTENT))
                EVALUATE WS-LLM-CONTENT(WS-IDX:1)
                    WHEN WS-QT
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE WS-QT TO WS-TEMP(WS-IDX2:1)
+                       MOVE WS-QT TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN "\"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN X"0A"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "n" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "n" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN X"0D"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "r" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "r" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN OTHER
                        MOVE WS-LLM-CONTENT(WS-IDX:1)
-                           TO WS-TEMP(WS-IDX2:1)
+                           TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                END-EVALUATE
            END-PERFORM
@@ -1621,34 +1484,34 @@
       *> APPEND-ESCAPED-TOOL-RESULT: Escape WS-TOOL-RESULT -> TEMP
       *> ============================================================
        APPEND-ESCAPED-TOOL-RESULT.
-           MOVE LENGTH(TRIM(WS-TEMP)) TO WS-IDX2
+           MOVE LENGTH(TRIM(WS-TMP)) TO WS-IDX2
            ADD 1 TO WS-IDX2
            PERFORM VARYING WS-IDX FROM 1 BY 1
                UNTIL WS-IDX > LENGTH(TRIM(WS-TOOL-RESULT))
                EVALUATE WS-TOOL-RESULT(WS-IDX:1)
                    WHEN WS-QT
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE WS-QT TO WS-TEMP(WS-IDX2:1)
+                       MOVE WS-QT TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN "\"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN X"0A"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "n" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "n" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN X"0D"
-                       MOVE "\" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "\" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
-                       MOVE "r" TO WS-TEMP(WS-IDX2:1)
+                       MOVE "r" TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                    WHEN OTHER
                        MOVE WS-TOOL-RESULT(WS-IDX:1)
-                           TO WS-TEMP(WS-IDX2:1)
+                           TO WS-TMP(WS-IDX2:1)
                        ADD 1 TO WS-IDX2
                END-EVALUATE
            END-PERFORM
@@ -1718,3 +1581,6 @@
 
            DISPLAY "  Wyslano " WS-RESULT " bajtow"
            .
+
+       COPY ENVLOAD-PROC.
+       COPY JSONPARSE-PROC.

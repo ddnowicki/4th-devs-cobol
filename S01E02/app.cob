@@ -32,34 +32,42 @@
        01  REQ-BODY-REC            PIC X(4000).
 
        WORKING-STORAGE SECTION.
-      *> -- Config --
-       01  WS-HUB-KEY              PIC X(50).
-       01  WS-OPENAI-KEY           PIC X(200).
-       01  WS-QT                   PIC X(1) VALUE '"'.
+      *> === Environment (via copybook) ===
+       COPY ENVLOAD-WS.
+
+      *> === Constants ===
+       01  WS-MAX-RETRIES          PIC 9(2) VALUE 10.
+       01  WS-RETRY-DELAY          PIC 9(2) VALUE 15.
+       01  WS-SUB-RETRIES          PIC 9(1) VALUE 5.
+       01  WS-SUB-RETRY-DELAY      PIC 9(2) VALUE 10.
+
+      *> === Shared WS (via copybooks) ===
+       COPY JSONPARSE-WS.
+       COPY JSONREAD-WS.
+       COPY JSONESCAPE-WS.
+       COPY TOOLPARSE-WS.
+
+      *> === File I/O ===
        01  WS-FS                   PIC XX.
        01  WS-WORK-PATH            PIC X(100)
                                    VALUE "work.tmp".
+       01  WS-SUSPECTS-PATH        PIC X(200).
 
-      *> -- URLs --
-       01  WS-HUB-URL              PIC X(100).
-       01  WS-OPENAI-URL           PIC X(200).
-       01  WS-VERIFY-URL           PIC X(200).
+      *> === HTTP ===
+       01  WS-CMD                  PIC X(4000).
        01  WS-LOCATION-URL         PIC X(200).
        01  WS-ACCESS-URL           PIC X(200).
 
-      *> -- JSON newline: backslash + n --
-       01  WS-NL                   PIC X(2).
+      *> === JSON Parsing (task-specific) ===
+       01  WS-SCAN-POS             PIC 9(5).
+       01  WS-BRACKET-DEPTH        PIC 9(2).
+       01  WS-ARR-START            PIC 9(5).
+       01  WS-ARR-END              PIC 9(5).
+       01  WS-OBJ-START            PIC 9(5).
+       01  WS-OBJ-END              PIC 9(5).
+       01  WS-OBJ-BUF              PIC X(2000).
 
-      *> -- STRING pointer --
-       01  WS-PTR                  PIC 9(5).
-
-      *> -- Large JSON buffer (read whole file) --
-       01  WS-JBUF                 PIC X(32000).
-       01  WS-JLEN                 PIC 9(5).
-       01  WS-JPOS                 PIC 9(5).
-       01  WS-JVAL                 PIC X(500).
-
-      *> -- Suspects (max 20) --
+      *> === Task Data - Suspects ===
        01  WS-SUSP-CT              PIC 9(2) VALUE 0.
        01  WS-SUSPS.
            05 WS-SUSP OCCURS 20 TIMES.
@@ -67,7 +75,7 @@
               10 WS-SU-SURNAME     PIC X(50).
               10 WS-SU-BYEAR       PIC 9(4).
 
-      *> -- Plants (max 20) --
+      *> === Task Data - Plants ===
        01  WS-PLANT-CT             PIC 9(2) VALUE 0.
        01  WS-PLANTS.
            05 WS-PL OCCURS 20 TIMES.
@@ -76,7 +84,7 @@
               10 WS-PL-LAT         PIC S9(3)V9(6).
               10 WS-PL-LON         PIC S9(3)V9(6).
 
-      *> -- Haversine --
+      *> === Haversine ===
        01  WS-PI-V                 PIC S9(1)V9(10)
                                    VALUE 3.1415926536.
        01  WS-RADF                 PIC S9(1)V9(10).
@@ -93,79 +101,12 @@
        01  WS-H-COS1              PIC S9(3)V9(10).
        01  WS-H-COS2              PIC S9(3)V9(10).
 
-      *> -- Geocoding --
+      *> === Geocoding ===
        01  WS-GEOCODE-URL          PIC X(200).
        01  WS-GEO-CITY             PIC X(100).
        01  WS-GEO-OK               PIC X VALUE "N".
 
-      *> -- JSON parsing temps --
-       01  WS-KEY-SEARCH           PIC X(50).
-       01  WS-KEY-POS              PIC 9(5).
-       01  WS-VAL-START            PIC 9(5).
-       01  WS-VAL-END              PIC 9(5).
-       01  WS-SCAN-POS             PIC 9(5).
-       01  WS-BRACKET-DEPTH        PIC 9(2).
-       01  WS-ARR-START            PIC 9(5).
-       01  WS-ARR-END              PIC 9(5).
-       01  WS-OBJ-START            PIC 9(5).
-       01  WS-OBJ-END              PIC 9(5).
-       01  WS-OBJ-BUF              PIC X(2000).
-
-      *> -- FIND-JSON-VAL internal scan pos --
-       01  WS-FJV-POS              PIC 9(5).
-
-      *> -- JSON escape input/output --
-       01  WS-ESC-IN               PIC X(4000).
-       01  WS-ESC-OUT              PIC X(8000).
-       01  WS-ESC-ILEN             PIC 9(5).
-       01  WS-ESC-OLEN             PIC 9(5).
-       01  WS-ESC-I                PIC 9(5).
-
-      *> -- Loop/misc --
-       01  WS-I                    PIC 9(2).
-       01  WS-J                    PIC 9(2).
-       01  WS-K                    PIC 9(5).
-       01  WS-EOF                  PIC X VALUE "N".
-       01  WS-LINE                 PIC X(4000).
-       01  WS-TMP                  PIC X(4000).
-       01  WS-TMP2                 PIC X(500).
-       01  WS-DISP-LAT             PIC -(3)9.9(6).
-       01  WS-DISP-LON             PIC -(3)9.9(6).
-       01  WS-DISP-DIST            PIC -(5)9.9(2).
-       01  WS-NUM-STR              PIC X(10).
-       01  WS-JBUF-SAVE            PIC X(32000).
-       01  WS-JLEN-SAVE            PIC 9(5).
-       01  WS-TALLY-CNT            PIC 9(4).
-
-      *> -- Suspects path --
-       01  WS-SUSPECTS-PATH        PIC X(200).
-
-      *> -- System command buffer --
-       01  WS-CMD                  PIC X(4000).
-
-      *> -- Agent conversation buffer (64KB) --
-       01  WS-CONV-BUF             PIC X(64000).
-       01  WS-CONV-PTR             PIC 9(5).
-
-      *> -- Agent loop --
-       01  WS-AG-STEP              PIC 9(2) VALUE 00.
-       01  WS-AG-DONE              PIC X VALUE "N".
-       01  WS-AG-CONTENT           PIC X(2000).
-
-      *> -- Tool call parsing --
-       01  WS-TOOL-NAME            PIC X(50).
-       01  WS-TOOL-CALL-ID         PIC X(100).
-       01  WS-TOOL-ARGS            PIC X(500).
-       01  WS-TOOL-RESULT          PIC X(8000).
-       01  WS-TOOL-RESULT-LEN      PIC 9(5).
-
-      *> -- Tool arg parsing --
-       01  WS-TA-NAME              PIC X(50).
-       01  WS-TA-SURNAME           PIC X(50).
-       01  WS-TA-BYEAR             PIC 9(4).
-       01  WS-TA-ANSWER            PIC X(2000).
-
-      *> -- Closest match tracking --
+      *> === Task Data - Closest Match ===
        01  WS-BEST-NAME            PIC X(50).
        01  WS-BEST-SURNAME         PIC X(50).
        01  WS-BEST-BYEAR           PIC 9(4).
@@ -174,14 +115,12 @@
        01  WS-BEST-CITY            PIC X(50).
        01  WS-BEST-CODE            PIC X(20).
        01  WS-BEST-FOUND           PIC X VALUE "N".
-
-      *> -- Per-suspect best for summary --
        01  WS-SU-BEST-DIST         PIC S9(5)V9(2).
        01  WS-SU-BEST-CITY         PIC X(50).
        01  WS-SU-BEST-CODE         PIC X(20).
        01  WS-SU-HAS-MATCH         PIC X.
 
-      *> -- Location parsing (multiple per suspect) --
+      *> === Task Data - Location Parsing ===
        01  WS-LOC-LAT              PIC S9(3)V9(6).
        01  WS-LOC-LON              PIC S9(3)V9(6).
        01  WS-LOC-JBUF             PIC X(8000).
@@ -194,16 +133,33 @@
        01  WS-LOC-DEPTH            PIC 9(2).
        01  WS-LOC-OBJ-BUF          PIC X(500).
 
-      *> -- LLM request file --
+      *> === Agent Loop ===
        01  WS-REQ-JSON             PIC X(64000).
-
-      *> -- Retry counter --
-       01  WS-RETRY-CT             PIC 9(2) VALUE 0.
-
-      *> -- Nudge counter --
+       01  WS-CONV-BUF             PIC X(64000).
+       01  WS-CONV-PTR             PIC 9(5).
+       01  WS-AG-STEP              PIC 9(2) VALUE 00.
+       01  WS-AG-DONE              PIC X VALUE "N".
+       01  WS-AG-CONTENT           PIC X(2000).
        01  WS-NUDGE-CT             PIC 9(1) VALUE 0.
 
-      *> -- Summary buffer for closest tool --
+      *> === Tool Call (task-specific) ===
+       01  WS-TOOL-RESULT          PIC X(8000).
+       01  WS-TOOL-RESULT-LEN      PIC 9(5).
+       01  WS-TA-NAME              PIC X(50).
+       01  WS-TA-SURNAME           PIC X(50).
+       01  WS-TA-BYEAR             PIC 9(4).
+       01  WS-TA-ANSWER            PIC X(2000).
+
+      *> === Control Flow ===
+       01  WS-PTR                  PIC 9(5).
+       01  WS-I                    PIC 9(2).
+       01  WS-J                    PIC 9(2).
+       01  WS-DISP-LAT             PIC -(3)9.9(6).
+       01  WS-DISP-LON             PIC -(3)9.9(6).
+       01  WS-DISP-DIST            PIC -(5)9.9(2).
+       01  WS-NUM-STR              PIC X(10).
+       01  WS-TALLY-CNT            PIC 9(4).
+       01  WS-RETRY-CT             PIC 9(2) VALUE 0.
        01  WS-SUMMARY-BUF          PIC X(4000).
        01  WS-SUMMARY-PTR          PIC 9(5).
 
@@ -211,40 +167,12 @@
        MAIN-PARA.
            DISPLAY "=== S01E02 FINDHIM - Stable 5-Tool ==="
 
-           ACCEPT WS-HUB-KEY
-               FROM ENVIRONMENT "HUB_API_KEY"
-           ACCEPT WS-OPENAI-KEY
-               FROM ENVIRONMENT "OPENAI_API_KEY"
-           ACCEPT WS-HUB-URL
-               FROM ENVIRONMENT "HUB_API_URL"
-           ACCEPT WS-OPENAI-URL
-               FROM ENVIRONMENT "OPENAI_API_URL"
+           PERFORM LOAD-ENV-VARS
+
            ACCEPT WS-GEOCODE-URL
                FROM ENVIRONMENT "GEOCODING_API_URL"
 
-           IF WS-HUB-KEY = SPACES
-               DISPLAY "ERROR: HUB_API_KEY not set"
-               STOP RUN
-           END-IF
-           IF WS-OPENAI-KEY = SPACES
-               DISPLAY "ERROR: OPENAI_API_KEY not set"
-               STOP RUN
-           END-IF
-           IF WS-HUB-URL = SPACES
-               DISPLAY "ERROR: HUB_API_URL not set"
-               STOP RUN
-           END-IF
-           IF WS-OPENAI-URL = SPACES
-               DISPLAY "ERROR: OPENAI_API_URL not set"
-               STOP RUN
-           END-IF
-
       *>   Construct URLs
-           INITIALIZE WS-VERIFY-URL
-           STRING TRIM(WS-HUB-URL) "/verify"
-               DELIMITED SIZE INTO WS-VERIFY-URL
-           END-STRING
-
            INITIALIZE WS-LOCATION-URL
            STRING TRIM(WS-HUB-URL) "/api/location"
                DELIMITED SIZE INTO WS-LOCATION-URL
@@ -254,10 +182,6 @@
            STRING TRIM(WS-HUB-URL) "/api/accesslevel"
                DELIMITED SIZE INTO WS-ACCESS-URL
            END-STRING
-
-      *>   Init JSON newline (backslash + n)
-           MOVE X"5C" TO WS-NL(1:1)
-           MOVE "n"    TO WS-NL(2:1)
 
            COMPUTE WS-RADF = WS-PI-V / 180
 
@@ -281,211 +205,18 @@
            STOP RUN.
 
       *> ============================================================
-      *> READ-JSON-FILE: Read entire file into WS-JBUF
-      *> ============================================================
-       READ-JSON-FILE.
-           MOVE SPACES TO WS-JBUF
-           MOVE 0 TO WS-JLEN
-           MOVE "N" TO WS-EOF
-           OPEN INPUT WORK-FILE
-           IF WS-FS NOT = "00"
-               EXIT PARAGRAPH
-           END-IF
-           PERFORM UNTIL WS-EOF = "Y"
-               READ WORK-FILE INTO WS-LINE
-                   AT END
-                       MOVE "Y" TO WS-EOF
-                   NOT AT END
-                       MOVE TRIM(WS-LINE) TO WS-LINE
-                       MOVE LENGTH(TRIM(WS-LINE))
-                           TO WS-K
-                       IF WS-K > 0
-                           IF WS-JLEN > 0
-                               ADD 1 TO WS-JLEN
-                               MOVE " "
-                                 TO WS-JBUF(WS-JLEN:1)
-                           END-IF
-                           MOVE WS-LINE(1:WS-K)
-                             TO WS-JBUF(
-                                WS-JLEN + 1:WS-K)
-                           ADD WS-K TO WS-JLEN
-                       END-IF
-               END-READ
-           END-PERFORM
-           CLOSE WORK-FILE
-           MOVE "N" TO WS-EOF
-           .
-
-      *> ============================================================
       *> WRITE-REQ-BODY: Write WS-TMP to request_body.tmp
       *> ============================================================
        WRITE-REQ-BODY.
            OPEN OUTPUT REQ-BODY-FILE
+           IF WS-FS NOT = "00"
+               DISPLAY "ERR: OPEN request_body.tmp"
+                   " FS=" WS-FS
+               STOP RUN
+           END-IF
            MOVE WS-TMP TO REQ-BODY-REC
            WRITE REQ-BODY-REC
            CLOSE REQ-BODY-FILE
-           .
-
-      *> ============================================================
-      *> JSON-ESCAPE-STR: Escape quotes/backslash in string
-      *> Input:  WS-ESC-IN
-      *> Output: WS-ESC-OUT, WS-ESC-OLEN
-      *> ============================================================
-       JSON-ESCAPE-STR.
-           MOVE SPACES TO WS-ESC-OUT
-           MOVE 0 TO WS-ESC-OLEN
-           MOVE LENGTH(TRIM(WS-ESC-IN))
-               TO WS-ESC-ILEN
-
-           IF WS-ESC-ILEN = 0
-               EXIT PARAGRAPH
-           END-IF
-
-           PERFORM VARYING WS-ESC-I FROM 1 BY 1
-               UNTIL WS-ESC-I > WS-ESC-ILEN
-               EVALUATE TRUE
-               WHEN WS-ESC-IN(WS-ESC-I:1) = WS-QT
-                   ADD 1 TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
-                   ADD 1 TO WS-ESC-OLEN
-                   MOVE WS-QT
-                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
-               WHEN WS-ESC-IN(WS-ESC-I:1) = X"5C"
-                   ADD 1 TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
-                   ADD 1 TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
-               WHEN OTHER
-                   ADD 1 TO WS-ESC-OLEN
-                   MOVE WS-ESC-IN(WS-ESC-I:1)
-                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
-               END-EVALUATE
-           END-PERFORM
-           .
-
-      *> ============================================================
-      *> JSON-UNESCAPE-STR
-      *> ============================================================
-       JSON-UNESCAPE-STR.
-           MOVE SPACES TO WS-ESC-OUT
-           MOVE 0 TO WS-ESC-OLEN
-           MOVE LENGTH(TRIM(WS-ESC-IN))
-               TO WS-ESC-ILEN
-
-           IF WS-ESC-ILEN = 0
-               EXIT PARAGRAPH
-           END-IF
-
-           MOVE 1 TO WS-ESC-I
-           PERFORM UNTIL WS-ESC-I > WS-ESC-ILEN
-               IF WS-ESC-IN(WS-ESC-I:1) = X"5C"
-               AND WS-ESC-I < WS-ESC-ILEN
-                   ADD 1 TO WS-ESC-I
-                   ADD 1 TO WS-ESC-OLEN
-                   MOVE WS-ESC-IN(WS-ESC-I:1)
-                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
-               ELSE
-                   ADD 1 TO WS-ESC-OLEN
-                   MOVE WS-ESC-IN(WS-ESC-I:1)
-                       TO WS-ESC-OUT(WS-ESC-OLEN:1)
-               END-IF
-               ADD 1 TO WS-ESC-I
-           END-PERFORM
-           .
-
-      *> ============================================================
-      *> FIND-JSON-VAL: Find "key":"value" in WS-JBUF
-      *> Input: WS-KEY-SEARCH, WS-JPOS
-      *> Output: WS-JVAL, WS-JPOS updated
-      *> ============================================================
-       FIND-JSON-VAL.
-           MOVE SPACES TO WS-JVAL
-           MOVE SPACES TO WS-TMP2
-           STRING WS-QT TRIM(WS-KEY-SEARCH) WS-QT
-               DELIMITED SIZE INTO WS-TMP2
-           END-STRING
-
-      *>   Find the key
-           MOVE 0 TO WS-KEY-POS
-           PERFORM VARYING WS-FJV-POS
-               FROM WS-JPOS BY 1
-               UNTIL WS-FJV-POS > WS-JLEN
-               OR WS-KEY-POS > 0
-               IF WS-JBUF(WS-FJV-POS:
-                   LENGTH(TRIM(WS-TMP2)))
-                   = TRIM(WS-TMP2)
-                   MOVE WS-FJV-POS TO WS-KEY-POS
-               END-IF
-           END-PERFORM
-
-           IF WS-KEY-POS = 0
-               EXIT PARAGRAPH
-           END-IF
-
-      *>   Skip past key and colon
-           COMPUTE WS-FJV-POS =
-               WS-KEY-POS + LENGTH(TRIM(WS-TMP2))
-           PERFORM UNTIL WS-FJV-POS > WS-JLEN
-               OR WS-JBUF(WS-FJV-POS:1) = ":"
-               ADD 1 TO WS-FJV-POS
-           END-PERFORM
-           ADD 1 TO WS-FJV-POS
-
-      *>   Skip whitespace
-           PERFORM UNTIL WS-FJV-POS > WS-JLEN
-               OR WS-JBUF(WS-FJV-POS:1) NOT = " "
-               ADD 1 TO WS-FJV-POS
-           END-PERFORM
-
-      *>   String value?
-           IF WS-JBUF(WS-FJV-POS:1) = WS-QT
-               ADD 1 TO WS-FJV-POS
-               MOVE WS-FJV-POS TO WS-VAL-START
-      *>       Find closing quote (skip escaped)
-               PERFORM UNTIL WS-FJV-POS > WS-JLEN
-                   IF WS-JBUF(WS-FJV-POS:1) = X"5C"
-                   AND WS-FJV-POS < WS-JLEN
-                       ADD 2 TO WS-FJV-POS
-                   ELSE
-                       IF WS-JBUF(WS-FJV-POS:1)
-                           = WS-QT
-                           EXIT PERFORM
-                       END-IF
-                       ADD 1 TO WS-FJV-POS
-                   END-IF
-               END-PERFORM
-               COMPUTE WS-VAL-END =
-                   WS-FJV-POS - 1
-               IF WS-VAL-END >= WS-VAL-START
-                   MOVE WS-JBUF(WS-VAL-START:
-                       WS-VAL-END - WS-VAL-START
-                       + 1)
-                       TO WS-JVAL
-               END-IF
-               ADD 1 TO WS-FJV-POS
-           ELSE
-      *>       Numeric: read until delimiter
-               MOVE WS-FJV-POS TO WS-VAL-START
-               PERFORM UNTIL WS-FJV-POS > WS-JLEN
-                   OR WS-JBUF(WS-FJV-POS:1) = ","
-                   OR WS-JBUF(WS-FJV-POS:1) = "}"
-                   OR WS-JBUF(WS-FJV-POS:1) = "]"
-                   OR WS-JBUF(WS-FJV-POS:1) = " "
-                   ADD 1 TO WS-FJV-POS
-               END-PERFORM
-               COMPUTE WS-VAL-END =
-                   WS-FJV-POS - 1
-               IF WS-VAL-END >= WS-VAL-START
-                   MOVE WS-JBUF(WS-VAL-START:
-                       WS-VAL-END - WS-VAL-START
-                       + 1)
-                       TO WS-JVAL
-               END-IF
-           END-IF
-           MOVE WS-FJV-POS TO WS-JPOS
            .
 
       *> ============================================================
@@ -645,7 +376,7 @@
 
       *>   Fetch via curl with retry
            MOVE 0 TO WS-RETRY-CT
-           PERFORM UNTIL WS-RETRY-CT >= 10
+           PERFORM UNTIL WS-RETRY-CT >= WS-MAX-RETRIES
                INITIALIZE WS-CMD
                STRING "curl -s -o plants.json "
                    "--retry 3 --retry-delay 5 "
@@ -676,7 +407,7 @@
                ADD 1 TO WS-RETRY-CT
                DISPLAY "  Retry " WS-RETRY-CT
                    " (rate limit?)..."
-               CALL "C$SLEEP" USING 15
+               CALL "C$SLEEP" USING WS-RETRY-DELAY
            END-PERFORM
 
       *>   Parse power_plants object keys
@@ -1270,6 +1001,12 @@
            MOVE "agent_req.json"
                TO WS-WORK-PATH
            OPEN OUTPUT WORK-FILE
+           IF WS-FS NOT = "00"
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-WORK-PATH)
+                   " FS=" WS-FS
+               STOP RUN
+           END-IF
            WRITE WORK-REC FROM WS-REQ-JSON
            CLOSE WORK-FILE
 
@@ -1553,7 +1290,7 @@
 
       *>   POST with retry
            MOVE 0 TO WS-RETRY-CT
-           PERFORM UNTIL WS-RETRY-CT >= 5
+           PERFORM UNTIL WS-RETRY-CT >= WS-SUB-RETRIES
                PERFORM WRITE-REQ-BODY
                INITIALIZE WS-CMD
                STRING
@@ -1597,10 +1334,10 @@
                END-IF
 
                ADD 1 TO WS-RETRY-CT
-               IF WS-RETRY-CT < 5
+               IF WS-RETRY-CT < WS-SUB-RETRIES
                    DISPLAY "      Retry "
                        WS-RETRY-CT " locs..."
-                   CALL "C$SLEEP" USING 10
+                   CALL "C$SLEEP" USING WS-SUB-RETRY-DELAY
                END-IF
            END-PERFORM
            .
@@ -1879,7 +1616,7 @@
 
       *>   POST with retry
            MOVE 0 TO WS-RETRY-CT
-           PERFORM UNTIL WS-RETRY-CT >= 5
+           PERFORM UNTIL WS-RETRY-CT >= WS-SUB-RETRIES
                PERFORM WRITE-REQ-BODY
                INITIALIZE WS-CMD
                STRING
@@ -1914,10 +1651,10 @@
                END-IF
 
                ADD 1 TO WS-RETRY-CT
-               IF WS-RETRY-CT < 5
+               IF WS-RETRY-CT < WS-SUB-RETRIES
                    DISPLAY "      Retry "
                        WS-RETRY-CT " access..."
-                   CALL "C$SLEEP" USING 10
+                   CALL "C$SLEEP" USING WS-SUB-RETRY-DELAY
                END-IF
            END-PERFORM
 
@@ -2132,57 +1869,6 @@
            .
 
       *> ============================================================
-      *> PARSE-TOOL-CALL
-      *> ============================================================
-       PARSE-TOOL-CALL.
-           MOVE SPACES TO WS-TOOL-NAME
-           MOVE SPACES TO WS-TOOL-CALL-ID
-           MOVE SPACES TO WS-TOOL-ARGS
-
-           MOVE SPACES TO WS-TMP2
-           STRING WS-QT "tool_calls" WS-QT
-               DELIMITED SIZE INTO WS-TMP2
-           END-STRING
-
-           MOVE 0 TO WS-KEY-POS
-           PERFORM VARYING WS-FJV-POS
-               FROM 1 BY 1
-               UNTIL WS-FJV-POS > WS-JLEN
-               OR WS-KEY-POS > 0
-               IF WS-JBUF(WS-FJV-POS:
-                   LENGTH(TRIM(WS-TMP2)))
-                   = TRIM(WS-TMP2)
-                   MOVE WS-FJV-POS
-                       TO WS-KEY-POS
-               END-IF
-           END-PERFORM
-
-           IF WS-KEY-POS = 0
-               EXIT PARAGRAPH
-           END-IF
-
-      *>   Extract id, name, arguments
-           MOVE "id" TO WS-KEY-SEARCH
-           MOVE WS-KEY-POS TO WS-JPOS
-           PERFORM FIND-JSON-VAL
-           MOVE TRIM(WS-JVAL)
-               TO WS-TOOL-CALL-ID
-
-           MOVE "name" TO WS-KEY-SEARCH
-           PERFORM FIND-JSON-VAL
-           MOVE TRIM(WS-JVAL)
-               TO WS-TOOL-NAME
-
-           MOVE "arguments" TO WS-KEY-SEARCH
-           PERFORM FIND-JSON-VAL
-      *>   Unescape
-           MOVE WS-JVAL TO WS-ESC-IN
-           PERFORM JSON-UNESCAPE-STR
-           MOVE TRIM(WS-ESC-OUT)
-               TO WS-TOOL-ARGS
-           .
-
-      *> ============================================================
       *> HAVERSINE: Distance between two GPS points
       *> ============================================================
        HAVERSINE.
@@ -2215,3 +1901,10 @@
            COMPUTE WS-H-DIST =
                6371 * 2 * ASIN(SQRT(WS-H-A))
            .
+
+       COPY ENVLOAD-PROC.
+       COPY JSONPARSE-PROC.
+       COPY JSONREAD-PROC.
+       COPY JSONESCAPE-PROC.
+       COPY JSONUNESCAPE-PROC.
+       COPY TOOLPARSE-PROC.
