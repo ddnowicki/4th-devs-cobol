@@ -33,10 +33,10 @@
        01  B64-REC                 PIC X(4100).
 
        WORKING-STORAGE SECTION.
-      *> -- Config --
-       01  WS-HUB-KEY              PIC X(100).
-       01  WS-OPENAI-KEY           PIC X(200).
-       01  WS-QT                   PIC X(1) VALUE '"'.
+      *> === Environment (via copybook) ===
+       COPY ENVLOAD-WS.
+
+      *> === File I/O ===
        01  WS-BS                   PIC X(1)
                                    VALUE X"5C".
        01  WS-FS                   PIC XX.
@@ -47,14 +47,8 @@
                                    VALUE
                                    "b64_data.tmp".
 
-      *> -- URLs --
-       01  WS-HUB-URL              PIC X(200).
-       01  WS-OPENAI-URL           PIC X(200).
-       01  WS-VERIFY-URL           PIC X(200).
+      *> === URLs (task-specific) ===
        01  WS-WHISPER-URL          PIC X(200).
-
-      *> -- JSON newline: backslash + n --
-       01  WS-NL                   PIC X(2).
 
       *> -- STRING pointer --
        01  WS-PTR                  PIC 9(6).
@@ -188,47 +182,10 @@
        MAIN-PARA.
            DISPLAY "=== S05E01 RADIOMONITOR ==="
 
-           ACCEPT WS-HUB-KEY
-               FROM ENVIRONMENT "HUB_API_KEY"
-           ACCEPT WS-OPENAI-KEY
-               FROM ENVIRONMENT "OPENAI_API_KEY"
-           ACCEPT WS-HUB-URL
-               FROM ENVIRONMENT "HUB_API_URL"
-           ACCEPT WS-OPENAI-URL
-               FROM ENVIRONMENT "OPENAI_API_URL"
-
-           IF WS-HUB-KEY = SPACES
-               DISPLAY "ERR: HUB_API_KEY!"
-               STOP RUN
-           END-IF
-           IF WS-OPENAI-KEY = SPACES
-               DISPLAY "ERR: OPENAI_API_KEY!"
-               STOP RUN
-           END-IF
-           IF WS-HUB-URL = SPACES
-               DISPLAY "ERR: HUB_API_URL!"
-               STOP RUN
-           END-IF
-           IF WS-OPENAI-URL = SPACES
-               DISPLAY "ERR: OPENAI_API_URL!"
-               STOP RUN
-           END-IF
-
-           MOVE SPACES TO WS-VERIFY-URL
-           STRING TRIM(WS-HUB-URL)
-               "/verify"
-               DELIMITED SIZE
-               INTO WS-VERIFY-URL
-           END-STRING
+           PERFORM LOAD-ENV-VARS
 
       *>   Build whisper URL from OpenAI URL
-      *>   Replace chat/completions with
-      *>   audio/transcriptions
            PERFORM BUILD-WHISPER-URL
-
-      *>   Init JSON newline
-           MOVE X"5C" TO WS-NL(1:1)
-           MOVE "n"    TO WS-NL(2:1)
 
       *>   Session retry loop
            MOVE 0 TO WS-SESSION-RETRY
@@ -2616,3 +2573,5 @@
            MOVE WS-FJV-POS
                TO WS-JPOS
            .
+
+       COPY ENVLOAD-PROC.

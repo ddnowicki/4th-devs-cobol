@@ -45,21 +45,15 @@
        01  REQ-BODY-RECORD         PIC X(8000).
 
        WORKING-STORAGE SECTION.
-      *> -- Config (loaded from environment) --
-       01  WS-OPENAI-KEY           PIC X(200).
-       01  WS-HUB-KEY              PIC X(50).
+      *> === Environment (via copybook) ===
+       COPY ENVLOAD-WS.
        01  WS-MODEL                PIC X(20) VALUE "gpt-4.1-mini".
 
-      *> -- Quote char for JSON building --
-       01  WS-QT                   PIC X(1) VALUE '"'.
+      *> === Constants ===
+       01  WS-MAX-RETRIES          PIC 9(1) VALUE 5.
 
-      *> -- URLs --
-       01  WS-HUB-URL              PIC X(100).
-       01  WS-OPENAI-URL           PIC X(200).
-       01  WS-DATA-URL             PIC X(200).
-       01  WS-VERIFY-URL           PIC X(200).
-
-      *> -- File paths --
+      *> === File I/O ===
+       01  WS-FILE-STATUS          PIC XX.
        01  WS-CSV-PATH             PIC X(100) VALUE
            "people.csv".
        01  WS-TAG-RESP-PATH        PIC X(100) VALUE
@@ -68,20 +62,16 @@
            "submit_response.json".
        01  WS-REQ-BODY-PATH        PIC X(100) VALUE
            "request_body.tmp".
+       01  WS-EOF                  PIC X(1) VALUE "N".
 
-      *> -- File status --
-       01  WS-FILE-STATUS          PIC XX.
-
-      *> -- System command buffer --
+      *> === HTTP ===
        01  WS-CMD                  PIC X(4000).
+       01  WS-DATA-URL             PIC X(200).
 
-      *> -- CSV parsing --
+      *> === CSV Parsing ===
        01  WS-CSV-LINE             PIC X(2000).
        01  WS-CSV-HEADER           PIC X(1) VALUE "Y".
        01  WS-FIELD-PTR            PIC 9(4).
-
-      *> -- CSV fields (no ID col: name,surname,gender,birthDate,
-      *>    birthPlace,birthCountry,job) --
        01  WS-FLD-NAME             PIC X(50).
        01  WS-FLD-SURNAME          PIC X(50).
        01  WS-FLD-GENDER           PIC X(10).
@@ -89,15 +79,23 @@
        01  WS-FLD-BIRTHPLACE       PIC X(100).
        01  WS-FLD-BIRTHCOUNTRY     PIC X(50).
        01  WS-FLD-JOB              PIC X(500).
-      *> -- CSV quoted-field parsing helpers --
        01  WS-QUOTE-POS            PIC 9(4).
        01  WS-REST-LINE            PIC X(2000).
 
-      *> -- Date parsing --
+      *> === Date Parsing ===
        01  WS-BORN-YEAR            PIC 9(4).
        01  WS-AGE-2026             PIC 9(3).
 
-      *> -- People table (max 500 filtered) --
+      *> === JSON Building ===
+       01  WS-JSON-BUF             PIC X(8000).
+       01  WS-JSON-ENTRY           PIC X(500).
+       01  WS-ANSWER-JSON          PIC X(8000).
+       01  WS-TAG-JSON             PIC X(4000).
+
+      *> === JSON Escape (via copybook) ===
+       COPY JSONESCAPE-WS.
+
+      *> === Task Data ===
        01  WS-MAX-PEOPLE           PIC 9(3) VALUE 500.
        01  WS-PEOPLE-COUNT         PIC 9(3) VALUE 0.
        01  WS-PEOPLE-TABLE.
@@ -111,44 +109,8 @@
                10  WS-P-BORN-YEAR PIC 9(4).
                10  WS-P-TAGS      PIC X(500).
                10  WS-P-HAS-TRANSPORT PIC X(1).
-
-      *> -- Transport results --
        01  WS-TRANSPORT-COUNT      PIC 9(3) VALUE 0.
        01  WS-TRANSPORT-IDX        OCCURS 100 TIMES PIC 9(3).
-
-      *> -- Counters --
-       01  WS-IDX                  PIC 9(3).
-       01  WS-TOTAL-CSV            PIC 9(5) VALUE 0.
-       01  WS-TALLY-CNT            PIC 9(4) VALUE 0.
-       01  WS-PI                   PIC 9(4).
-
-      *> -- Tag response --
-       01  WS-TAG-LINE             PIC X(4000).
-
-      *> -- JSON building --
-       01  WS-JSON-BUF             PIC X(8000).
-       01  WS-JSON-ENTRY           PIC X(500).
-       01  WS-ANSWER-JSON          PIC X(8000).
-       01  WS-TAG-JSON             PIC X(4000).
-
-      *> -- JSON escaping --
-       01  WS-ESC-INPUT            PIC X(500).
-       01  WS-ESC-OUTPUT           PIC X(1000).
-       01  WS-ESC-IN-LEN           PIC 9(4).
-       01  WS-ESC-OUT-LEN          PIC 9(4).
-       01  WS-ESC-I                PIC 9(4).
-
-      *> -- Misc --
-       01  WS-EOF-FLAG             PIC X(1) VALUE "N".
-       01  WS-TRIMMED              PIC X(500).
-       01  WS-RESP-LINE            PIC X(4000).
-      *> -- Tag array building --
-       01  WS-TAG-SRC              PIC X(500).
-       01  WS-TAG-PART             PIC X(100).
-       01  WS-TAG-PTR              PIC 9(4).
-       01  WS-TAG-FIRST            PIC X(1).
-
-      *> -- System prompt for tagging --
        01  WS-SYS-PROMPT           PIC X(500) VALUE
            "Przypisz tagi do opisu stanowiska pracy. Dostepne tagi:"
            & " IT, transport, edukacja, medycyna, praca z ludzmi,"
@@ -156,53 +118,37 @@
            & " Zwroc TYLKO pasujace tagi. Osoba moze miec wiele tagow."
            & " Odpowiedz TYLKO jako JSON: {tags:[tag1,tag2]}".
 
+      *> === Control Flow ===
+       01  WS-IDX                  PIC 9(3).
+       01  WS-TOTAL-CSV            PIC 9(5) VALUE 0.
+       01  WS-TALLY-CNT            PIC 9(4) VALUE 0.
+       01  WS-PI                   PIC 9(4).
+       01  WS-TAG-LINE             PIC X(4000).
+       01  WS-TRIMMED              PIC X(500).
+       01  WS-RESP-LINE            PIC X(4000).
+       01  WS-TAG-SRC              PIC X(500).
+       01  WS-TAG-PART             PIC X(100).
+       01  WS-TAG-PTR              PIC 9(4).
+       01  WS-TAG-FIRST            PIC X(1).
+
        PROCEDURE DIVISION.
        MAIN-PROGRAM.
            DISPLAY "=== S01E01 PEOPLE - COBOL ==="
 
-           ACCEPT WS-OPENAI-KEY FROM ENVIRONMENT "OPENAI_API_KEY"
-           ACCEPT WS-HUB-KEY FROM ENVIRONMENT "HUB_API_KEY"
+           PERFORM LOAD-ENV-VARS
 
-           IF WS-OPENAI-KEY = SPACES
-               DISPLAY "BLAD: Ustaw OPENAI_API_KEY!"
-               STOP RUN
-           END-IF
-           IF WS-HUB-KEY = SPACES
-               DISPLAY "BLAD: Ustaw HUB_API_KEY!"
-               STOP RUN
-           END-IF
-
-           ACCEPT WS-HUB-URL FROM ENVIRONMENT "HUB_API_URL"
-           ACCEPT WS-OPENAI-URL FROM ENVIRONMENT "OPENAI_API_URL"
-
-           IF WS-HUB-URL = SPACES
-               DISPLAY "BLAD: Ustaw HUB_API_URL!"
-               STOP RUN
-           END-IF
-           IF WS-OPENAI-URL = SPACES
-               DISPLAY "BLAD: Ustaw OPENAI_API_URL!"
-               STOP RUN
-           END-IF
-
-           INITIALIZE WS-VERIFY-URL
-           STRING TRIM(WS-HUB-URL) "/verify"
-               DELIMITED SIZE INTO WS-VERIFY-URL
-           END-STRING
-
-           PERFORM STEP-1-FETCH-CSV
-           PERFORM STEP-2-PARSE-AND-FILTER
-           PERFORM STEP-3-TAG-ALL-JOBS
-           PERFORM STEP-4-FILTER-TRANSPORT
-           PERFORM STEP-5-SUBMIT-ANSWER
+           PERFORM FETCH-CSV
+           PERFORM PARSE-AND-FILTER
+           PERFORM TAG-ALL-JOBS
+           PERFORM FILTER-TRANSPORT
+           PERFORM SUBMIT-ANSWER
 
            DISPLAY " "
            DISPLAY "=== PROGRAM ZAKONCZONY ==="
            STOP RUN.
 
-      *> ============================================================
-      *> STEP 1: Fetch CSV via CALL "SYSTEM" curl GET
-      *> ============================================================
-       STEP-1-FETCH-CSV.
+      *> === Fetch CSV ===
+       FETCH-CSV.
            DISPLAY " "
            DISPLAY "--- Krok 1: Pobieranie CSV ---"
 
@@ -230,30 +176,29 @@
            DISPLAY "  CSV pobrany do: " TRIM(WS-CSV-PATH)
            .
 
-      *> ============================================================
-      *> STEP 2: Parse CSV and filter
-      *> ============================================================
-       STEP-2-PARSE-AND-FILTER.
+      *> === Parse CSV and Filter ===
+       PARSE-AND-FILTER.
            DISPLAY " "
            DISPLAY "--- Krok 2: Parsowanie i filtracja CSV ---"
            DISPLAY "  Filtr: mezczyzni, Grudziadz, wiek 20-40 (2026)"
 
            MOVE "Y" TO WS-CSV-HEADER
-           MOVE "N" TO WS-EOF-FLAG
+           MOVE "N" TO WS-EOF
            MOVE 0 TO WS-PEOPLE-COUNT
            MOVE 0 TO WS-TOTAL-CSV
 
            OPEN INPUT CSV-FILE
            IF WS-FILE-STATUS NOT = "00"
-               DISPLAY "  BLAD: Nie mozna otworzyc CSV! Status: "
-                       WS-FILE-STATUS
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-CSV-PATH)
+                   " FS=" WS-FILE-STATUS
                STOP RUN
            END-IF
 
-           PERFORM UNTIL WS-EOF-FLAG = "Y"
+           PERFORM UNTIL WS-EOF = "Y"
                READ CSV-FILE INTO WS-CSV-LINE
                    AT END
-                       MOVE "Y" TO WS-EOF-FLAG
+                       MOVE "Y" TO WS-EOF
                    NOT AT END
                        IF WS-CSV-HEADER = "Y"
                            MOVE "N" TO WS-CSV-HEADER
@@ -272,8 +217,6 @@
            .
 
       *> -- Parse one CSV line into fields --
-      *> Format: name,surname,gender,birthDate,birthPlace,
-      *>         birthCountry,"job with commas"
        PARSE-CSV-LINE.
            MOVE SPACES TO WS-FLD-NAME
                           WS-FLD-SURNAME
@@ -284,7 +227,6 @@
                           WS-FLD-JOB
            MOVE 1 TO WS-FIELD-PTR
 
-      *>   Parse first 6 non-quoted fields
            UNSTRING WS-CSV-LINE DELIMITED BY ","
                INTO WS-FLD-NAME
                     WS-FLD-SURNAME
@@ -295,14 +237,11 @@
                WITH POINTER WS-FIELD-PTR
            END-UNSTRING
 
-      *>   Remaining part is the job field (may be quoted)
            IF WS-FIELD-PTR > 0 AND
               WS-FIELD-PTR < LENGTH(TRIM(WS-CSV-LINE))
                MOVE WS-CSV-LINE(WS-FIELD-PTR:) TO WS-REST-LINE
-      *>       Strip surrounding quotes if present
                IF WS-REST-LINE(1:1) = WS-QT
                    MOVE WS-REST-LINE(2:) TO WS-FLD-JOB
-      *>           Remove trailing quote
                    INSPECT WS-FLD-JOB REPLACING TRAILING
                        SPACES BY SPACES
                    MOVE 0 TO WS-QUOTE-POS
@@ -372,10 +311,8 @@
            MOVE "N" TO WS-P-HAS-TRANSPORT(WS-PEOPLE-COUNT)
            .
 
-      *> ============================================================
-      *> STEP 3: Tag all jobs via OpenAI API
-      *> ============================================================
-       STEP-3-TAG-ALL-JOBS.
+      *> === Tag All Jobs via OpenAI API ===
+       TAG-ALL-JOBS.
            DISPLAY " "
            DISPLAY "--- Krok 3: Tagowanie zawodow przez LLM ---"
            DISPLAY "  Model: " TRIM(WS-MODEL)
@@ -394,11 +331,9 @@
                TRIM(WS-P-SURNAME(WS-IDX))
                " - job: " TRIM(WS-P-JOB(WS-IDX))
 
-      *>   Escape job for JSON
-           MOVE WS-P-JOB(WS-IDX) TO WS-ESC-INPUT
-           PERFORM ESCAPE-FOR-JSON
+           MOVE WS-P-JOB(WS-IDX) TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
 
-      *>   Build JSON request body in memory
            INITIALIZE WS-TAG-JSON
            STRING
                "{"
@@ -413,7 +348,7 @@
                "{"
                WS-QT "role" WS-QT ":" WS-QT "user" WS-QT ","
                WS-QT "content" WS-QT ":" WS-QT
-               WS-ESC-OUTPUT(1:WS-ESC-OUT-LEN) WS-QT
+               WS-ESC-OUT(1:WS-ESC-OLEN) WS-QT
                "}"
                "],"
                WS-QT "temperature" WS-QT ":0.2"
@@ -422,12 +357,16 @@
                INTO WS-TAG-JSON
            END-STRING
 
-      *>   Write request body to temp file
            OPEN OUTPUT REQ-BODY-FILE
+           IF WS-FILE-STATUS NOT = "00"
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-REQ-BODY-PATH)
+                   " FS=" WS-FILE-STATUS
+               STOP RUN
+           END-IF
            WRITE REQ-BODY-RECORD FROM WS-TAG-JSON
            CLOSE REQ-BODY-FILE
 
-      *>   POST to OpenAI API via CALL "SYSTEM" curl
            INITIALIZE WS-CMD
            STRING
                "curl -s -o " TRIM(WS-TAG-RESP-PATH)
@@ -445,7 +384,6 @@
 
            CALL "SYSTEM" USING WS-CMD
 
-      *>   Read response and extract tags
            PERFORM READ-TAG-RESPONSE
            DISPLAY "    -> tagi: " TRIM(WS-P-TAGS(WS-IDX))
            .
@@ -453,7 +391,7 @@
       *> -- Read tag response and extract tags --
        READ-TAG-RESPONSE.
            MOVE SPACES TO WS-P-TAGS(WS-IDX)
-           MOVE "N" TO WS-EOF-FLAG
+           MOVE "N" TO WS-EOF
            MOVE SPACES TO WS-TAG-LINE
 
            OPEN INPUT TAG-RESP-FILE
@@ -463,13 +401,12 @@
                EXIT PARAGRAPH
            END-IF
 
-      *>   Read ALL lines and concatenate (response is multi-line)
            MOVE SPACES TO WS-TAG-LINE
-           PERFORM UNTIL WS-EOF-FLAG = "Y"
+           PERFORM UNTIL WS-EOF = "Y"
                MOVE SPACES TO WS-RESP-LINE
                READ TAG-RESP-FILE INTO WS-RESP-LINE
                    AT END
-                       MOVE "Y" TO WS-EOF-FLAG
+                       MOVE "Y" TO WS-EOF
                    NOT AT END
                        STRING TRIM(WS-TAG-LINE)
                            " "
@@ -480,7 +417,7 @@
                END-READ
            END-PERFORM
            CLOSE TAG-RESP-FILE
-           MOVE "N" TO WS-EOF-FLAG
+           MOVE "N" TO WS-EOF
 
            PERFORM EXTRACT-TAGS-FROM-RESPONSE
            .
@@ -490,7 +427,6 @@
            MOVE SPACES TO WS-P-TAGS(WS-IDX)
            MOVE "N" TO WS-P-HAS-TRANSPORT(WS-IDX)
 
-      *>   Search for each known tag in the response
            MOVE 0 TO WS-TALLY-CNT
            INSPECT WS-TAG-LINE
                TALLYING WS-TALLY-CNT FOR ALL "transport"
@@ -588,10 +524,8 @@
            END-IF
            .
 
-      *> ============================================================
-      *> STEP 4: Filter transport people
-      *> ============================================================
-       STEP-4-FILTER-TRANSPORT.
+      *> === Filter Transport People ===
+       FILTER-TRANSPORT.
            DISPLAY " "
            DISPLAY "--- Krok 4: Filtrowanie - tag transport ---"
 
@@ -612,10 +546,8 @@
                WS-TRANSPORT-COUNT
            .
 
-      *> ============================================================
-      *> STEP 5: Build and submit answer
-      *> ============================================================
-       STEP-5-SUBMIT-ANSWER.
+      *> === Build and Submit Answer ===
+       SUBMIT-ANSWER.
            DISPLAY " "
            DISPLAY "--- Krok 5: Wysylanie odpowiedzi ---"
 
@@ -639,35 +571,32 @@
                MOVE WS-TRANSPORT-IDX(WS-IDX) TO WS-PI
                INITIALIZE WS-JSON-ENTRY
 
-      *>       Build tags array: split by ", " and quote each
                INITIALIZE WS-TAG-JSON
                PERFORM BUILD-TAGS-ARRAY
 
-      *>       Escape name for JSON
                MOVE WS-P-NAME(WS-PI)
-                   TO WS-ESC-INPUT
-               PERFORM ESCAPE-FOR-JSON
+                   TO WS-ESC-IN
+               PERFORM JSON-ESCAPE-STR
                STRING
                    "{"
                    WS-QT "name" WS-QT ":"
                    WS-QT
-                   WS-ESC-OUTPUT(
-                   1:WS-ESC-OUT-LEN)
+                   WS-ESC-OUT(
+                   1:WS-ESC-OLEN)
                    WS-QT ","
                    DELIMITED SIZE
                    INTO WS-JSON-ENTRY
                END-STRING
 
-      *>       Escape surname for JSON
                MOVE WS-P-SURNAME(WS-PI)
-                   TO WS-ESC-INPUT
-               PERFORM ESCAPE-FOR-JSON
+                   TO WS-ESC-IN
+               PERFORM JSON-ESCAPE-STR
                STRING
                    TRIM(WS-JSON-ENTRY)
                    WS-QT "surname" WS-QT ":"
                    WS-QT
-                   WS-ESC-OUTPUT(
-                   1:WS-ESC-OUT-LEN)
+                   WS-ESC-OUT(
+                   1:WS-ESC-OLEN)
                    WS-QT ","
                    DELIMITED SIZE
                    INTO WS-JSON-ENTRY
@@ -684,16 +613,15 @@
                    INTO WS-JSON-ENTRY
                END-STRING
 
-      *>       Escape city for JSON
                MOVE WS-P-BIRTHPLACE(WS-PI)
-                   TO WS-ESC-INPUT
-               PERFORM ESCAPE-FOR-JSON
+                   TO WS-ESC-IN
+               PERFORM JSON-ESCAPE-STR
                STRING
                    TRIM(WS-JSON-ENTRY)
                    WS-QT "city" WS-QT ":"
                    WS-QT
-                   WS-ESC-OUTPUT(
-                   1:WS-ESC-OUT-LEN)
+                   WS-ESC-OUT(
+                   1:WS-ESC-OLEN)
                    WS-QT ","
                    WS-QT "tags" WS-QT ":"
                    TRIM(WS-TAG-JSON)
@@ -759,52 +687,8 @@
            END-STRING
            .
 
-      *> -- Escape string for JSON embedding --
-      *> Input:  WS-ESC-INPUT
-      *> Output: WS-ESC-OUTPUT, WS-ESC-OUT-LEN
-       ESCAPE-FOR-JSON.
-           MOVE SPACES TO WS-ESC-OUTPUT
-           MOVE 0 TO WS-ESC-OUT-LEN
-           MOVE LENGTH(TRIM(WS-ESC-INPUT))
-               TO WS-ESC-IN-LEN
-
-           PERFORM VARYING WS-ESC-I
-               FROM 1 BY 1
-               UNTIL WS-ESC-I > WS-ESC-IN-LEN
-               EVALUATE TRUE
-               WHEN WS-ESC-INPUT(WS-ESC-I:1)
-                   = WS-QT
-                   ADD 1 TO WS-ESC-OUT-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUTPUT(
-                       WS-ESC-OUT-LEN:1)
-                   ADD 1 TO WS-ESC-OUT-LEN
-                   MOVE WS-QT
-                       TO WS-ESC-OUTPUT(
-                       WS-ESC-OUT-LEN:1)
-               WHEN WS-ESC-INPUT(WS-ESC-I:1)
-                   = X"5C"
-                   ADD 1 TO WS-ESC-OUT-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUTPUT(
-                       WS-ESC-OUT-LEN:1)
-                   ADD 1 TO WS-ESC-OUT-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUTPUT(
-                       WS-ESC-OUT-LEN:1)
-               WHEN OTHER
-                   ADD 1 TO WS-ESC-OUT-LEN
-                   MOVE WS-ESC-INPUT(
-                       WS-ESC-I:1)
-                       TO WS-ESC-OUTPUT(
-                       WS-ESC-OUT-LEN:1)
-               END-EVALUATE
-           END-PERFORM
-           .
-
       *> -- Send answer to verify endpoint --
        SEND-ANSWER.
-      *>   Build full payload JSON
            INITIALIZE WS-JSON-BUF
            STRING
                "{"
@@ -821,12 +705,16 @@
 
            DISPLAY "  Payload: " TRIM(WS-JSON-BUF)
 
-      *>   Write request body to temp file
            OPEN OUTPUT REQ-BODY-FILE
+           IF WS-FILE-STATUS NOT = "00"
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-REQ-BODY-PATH)
+                   " FS=" WS-FILE-STATUS
+               STOP RUN
+           END-IF
            WRITE REQ-BODY-RECORD FROM WS-JSON-BUF
            CLOSE REQ-BODY-FILE
 
-      *>   POST to verify endpoint via CALL "SYSTEM" curl
            INITIALIZE WS-CMD
            STRING
                "curl -s -o " TRIM(WS-SUBMIT-RESP-PATH)
@@ -843,16 +731,15 @@
 
            DISPLAY "  Wysylam do: " TRIM(WS-VERIFY-URL)
 
-      *>   Read and display full response
            MOVE SPACES TO WS-RESP-LINE
-           MOVE "N" TO WS-EOF-FLAG
+           MOVE "N" TO WS-EOF
            OPEN INPUT SUBMIT-RESP-FILE
            IF WS-FILE-STATUS = "00"
-               PERFORM UNTIL WS-EOF-FLAG = "Y"
+               PERFORM UNTIL WS-EOF = "Y"
                    MOVE SPACES TO WS-TAG-LINE
                    READ SUBMIT-RESP-FILE INTO WS-TAG-LINE
                        AT END
-                           MOVE "Y" TO WS-EOF-FLAG
+                           MOVE "Y" TO WS-EOF
                        NOT AT END
                            STRING TRIM(WS-RESP-LINE) " "
                                TRIM(WS-TAG-LINE)
@@ -862,9 +749,12 @@
                    END-READ
                END-PERFORM
                CLOSE SUBMIT-RESP-FILE
-               MOVE "N" TO WS-EOF-FLAG
+               MOVE "N" TO WS-EOF
                DISPLAY "  Odpowiedz: " TRIM(WS-RESP-LINE)
            ELSE
                DISPLAY "  BLAD: Nie mozna odczytac odpowiedzi!"
            END-IF
            .
+
+       COPY ENVLOAD-PROC.
+       COPY JSONESCAPE-PROC.

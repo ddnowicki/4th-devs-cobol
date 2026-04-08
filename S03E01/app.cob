@@ -25,177 +25,111 @@
        01  WORK-REC                PIC X(64000).
 
        WORKING-STORAGE SECTION.
-      *> -- Config --
-       01  WS-HUB-KEY              PIC X(100).
-       01  WS-OPENAI-KEY           PIC X(200).
-       01  WS-QT                   PIC X(1) VALUE '"'.
+      *> === Environment (via copybook) ===
+       COPY ENVLOAD-WS.
+
+      *> === File I/O ===
        01  WS-FS                   PIC XX.
        01  WS-WORK-PATH            PIC X(200)
                                    VALUE "work.tmp".
 
-      *> -- URLs --
-       01  WS-HUB-URL              PIC X(100).
-       01  WS-OPENAI-URL           PIC X(200).
-       01  WS-VERIFY-URL           PIC X(200).
-
-      *> -- JSON newline: backslash + n --
-       01  WS-NL                   PIC X(2).
-
-      *> -- STRING pointer --
-       01  WS-PTR                  PIC 9(5).
-
-      *> -- System command buffer --
+      *> === HTTP ===
        01  WS-CMD                  PIC X(4000).
-
-      *> -- Large JSON buffers --
-       01  WS-JBUF                 PIC X(32000).
-       01  WS-JLEN                 PIC 9(5).
-       01  WS-JPOS                 PIC 9(5).
-       01  WS-JVAL                 PIC X(8000).
-
-      *> -- JSON parsing temps --
-       01  WS-KEY-SEARCH           PIC X(50).
-       01  WS-KEY-POS              PIC 9(5).
-       01  WS-VAL-START            PIC 9(5).
-       01  WS-VAL-END              PIC 9(5).
-       01  WS-FJV-POS             PIC 9(5).
-       01  WS-TMP                  PIC X(500).
-
-      *> -- File I/O --
-       01  WS-EOF                  PIC X VALUE "N".
-       01  WS-LINE                 PIC X(16000).
-       01  WS-K                    PIC 9(5).
-       01  WS-TALLY-CNT            PIC 9(5).
-
-      *> -- LLM request buffer --
        01  WS-REQ-JSON             PIC X(64000).
 
-      *> -- Response buffer --
+      *> === JSON Parsing (copybook) ===
+       COPY JSONPARSE-WS.
+       COPY JSONREAD-WS.
+
+      *> === JSON Escape (copybook) ===
+       COPY JSONESCAPE-WS.
+
+      *> === Task Configuration ===
+       01  WS-BATCH-SIZE           PIC 9(3) VALUE 50.
+       01  WS-MAX-LLM              PIC 9(3) VALUE 200.
+       01  WS-MAX-FLAGS            PIC 9(5)
+                                   VALUE 15000.
+       01  WS-MAX-VALID            PIC 9(5)
+                                   VALUE 15000.
+       01  WS-MAX-UNIQ             PIC 9(5)
+                                   VALUE 2000.
+
+      *> === Task Data ===
        01  WS-RESP-BUF             PIC X(32000).
        01  WS-RESP-LEN             PIC 9(5).
-
-      *> -- JSON escape I/O --
-       01  WS-ESC-IN               PIC X(2000).
-       01  WS-ESC-OUT              PIC X(4000).
-       01  WS-ESC-ILEN             PIC 9(5).
-       01  WS-ESC-OLEN             PIC 9(5).
-       01  WS-ESC-I                PIC 9(5).
-
-      *> -- Phase 1: Download --
        01  WS-ZIP-EXISTS           PIC X VALUE "N".
-
-      *> -- Phase 2: Sensor file processing --
        01  WS-FILE-LINE            PIC X(300).
        01  WS-FILE-ID              PIC X(20).
        01  WS-SENSOR-TYPE          PIC X(200).
        01  WS-SENSOR-LOW           PIC X(200).
        01  WS-NOTES-RAW            PIC X(1000).
-
-      *> -- Sensor values (numeric) --
+       01  WS-VAL-STR              PIC X(30).
        01  WS-TEMP-K               PIC S9(6)V9(4).
        01  WS-PRESS-BAR            PIC S9(6)V9(4).
        01  WS-WATER-M              PIC S9(6)V9(4).
        01  WS-VOLT-V               PIC S9(6)V9(4).
        01  WS-HUMID-PCT            PIC S9(6)V9(4).
-
-      *> -- Sensor values (string for parsing) --
-       01  WS-VAL-STR              PIC X(30).
-
-      *> -- Active sensor flags --
        01  WS-ACT-TEMP             PIC X VALUE "N".
        01  WS-ACT-PRESS            PIC X VALUE "N".
        01  WS-ACT-WATER            PIC X VALUE "N".
        01  WS-ACT-VOLT             PIC X VALUE "N".
        01  WS-ACT-HUMID            PIC X VALUE "N".
-
-      *> -- Anomaly flag for current file --
        01  WS-IS-ANOMALY           PIC X VALUE "N".
-
-      *> -- Counters --
        01  WS-TOTAL-FILES          PIC 9(5) VALUE 0.
        01  WS-FLAGGED-DATA         PIC 9(5) VALUE 0.
        01  WS-VALID-DATA           PIC 9(5) VALUE 0.
-
-      *> -- Flagged file IDs (Phase 2) --
-       01  WS-MAX-FLAGS            PIC 9(5) VALUE 15000.
        01  WS-FLAG-COUNT           PIC 9(5) VALUE 0.
        01  WS-FLAG-IDS.
            05 WS-FLAG-ID OCCURS 15000 TIMES
                                    PIC X(20).
-
-      *> -- Valid files with notes (Phase 2->3) --
-       01  WS-MAX-VALID            PIC 9(5) VALUE 15000.
        01  WS-VLD-COUNT            PIC 9(5) VALUE 0.
        01  WS-VLD-ENTRIES.
            05 WS-VLD-ENT OCCURS 15000 TIMES.
               10 WS-VLD-ID         PIC X(20).
               10 WS-VLD-NOTE       PIC X(500).
-
-      *> -- Unique notes table (Phase 3) --
-       01  WS-MAX-UNIQ             PIC 9(5) VALUE 2000.
        01  WS-UNIQ-COUNT           PIC 9(5) VALUE 0.
        01  WS-UNIQ-NOTES.
            05 WS-UNIQ-ENT OCCURS 2000 TIMES.
               10 WS-UNIQ-TEXT      PIC X(500).
               10 WS-UNIQ-CLASS     PIC X(10).
-
-      *> -- Flagged by notes (Phase 3) --
        01  WS-NOTE-FLAG-CT         PIC 9(5) VALUE 0.
        01  WS-NOTE-FLAGS.
            05 WS-NOTE-FLG OCCURS 5000 TIMES
                                    PIC X(20).
-
-      *> -- Batch processing --
-       01  WS-BATCH-SIZE           PIC 9(3) VALUE 50.
-       01  WS-BATCH-START          PIC 9(5).
-       01  WS-BATCH-END            PIC 9(5).
-       01  WS-LLM-CALLS            PIC 9(3) VALUE 0.
-       01  WS-MAX-LLM              PIC 9(3) VALUE 200.
-
-      *> -- Loop variables --
-       01  WS-I                    PIC 9(5).
-       01  WS-J                    PIC 9(5).
-       01  WS-N                    PIC 9(5).
-       01  WS-FOUND-FLAG           PIC X VALUE "N".
-
-      *> -- Sensor type parsing --
-       01  WS-STYPE-POS            PIC 9(3).
-       01  WS-STYPE-LEN            PIC 9(3).
-       01  WS-STYPE-PART           PIC X(30).
-       01  WS-STYPE-PARTL          PIC X(30).
-
-      *> -- Final answer building --
-       01  WS-ANS-BUF              PIC X(64000).
-       01  WS-ANS-PTR              PIC 9(5).
-       01  WS-FIRST-ANS            PIC X VALUE "Y".
-
-      *> -- Combined flags for final submit --
        01  WS-COMBINED-CT          PIC 9(5) VALUE 0.
        01  WS-COMBINED-IDS.
            05 WS-COMB-ID OCCURS 15000 TIMES
                                    PIC X(20).
+       01  WS-ANS-BUF              PIC X(64000).
+       01  WS-ANS-PTR              PIC 9(5).
+       01  WS-FIRST-ANS            PIC X VALUE "Y".
+       01  WS-STYPE-POS            PIC 9(3).
+       01  WS-STYPE-LEN            PIC 9(3).
+       01  WS-STYPE-PART           PIC X(30).
+       01  WS-STYPE-PARTL          PIC X(30).
+       01  WS-FILE-NUM             PIC 9(5).
+       01  WS-FILE-NUM-STR         PIC 9(4).
+       01  WS-GEN-PATH             PIC X(30).
 
-      *> -- Sort temp --
+      *> === Control Flow ===
+       01  WS-PTR                  PIC 9(5).
+       01  WS-I                    PIC 9(5).
+       01  WS-J                    PIC 9(5).
+       01  WS-N                    PIC 9(5).
+       01  WS-TALLY-CNT            PIC 9(5).
+       01  WS-FOUND-FLAG           PIC X VALUE "N".
+       01  WS-BATCH-START          PIC 9(5).
+       01  WS-BATCH-END            PIC 9(5).
+       01  WS-LLM-CALLS            PIC 9(3) VALUE 0.
        01  WS-SORT-TEMP            PIC X(20).
        01  WS-SORT-I               PIC 9(5).
        01  WS-SORT-J               PIC 9(5).
        01  WS-SORT-SWAPPED         PIC X.
-
-      *> -- Retry --
        01  WS-RETRY-CT             PIC 9(2) VALUE 0.
        01  WS-SLEEP-SECS           PIC 9(8).
-
-      *> -- Misc --
        01  WS-DISP-NUM             PIC Z(4)9.
        01  WS-NUMVAL-ERR           PIC X VALUE "N".
-
-      *> -- Sensor type part counter --
        01  WS-PART-COUNT           PIC 9(2).
-
-      *> -- Numeric file iteration --
-       01  WS-FILE-NUM             PIC 9(5).
-       01  WS-FILE-NUM-STR         PIC 9(4).
-       01  WS-GEN-PATH             PIC X(30).
 
       *> -- ZIP extraction via POSIX FFI --
        01  WS-ZIP-FD         PIC S9(9) COMP-5.
@@ -283,42 +217,7 @@
        MAIN-PARA.
            DISPLAY "=== S03E01 SENSORS ==="
 
-           ACCEPT WS-HUB-KEY
-               FROM ENVIRONMENT "HUB_API_KEY"
-           ACCEPT WS-OPENAI-KEY
-               FROM ENVIRONMENT "OPENAI_API_KEY"
-           ACCEPT WS-HUB-URL
-               FROM ENVIRONMENT "HUB_API_URL"
-           ACCEPT WS-OPENAI-URL
-               FROM ENVIRONMENT "OPENAI_API_URL"
-
-           IF WS-HUB-KEY = SPACES
-               DISPLAY "ERR: HUB_API_KEY!"
-               STOP RUN
-           END-IF
-           IF WS-OPENAI-KEY = SPACES
-               DISPLAY "ERR: OPENAI_API_KEY!"
-               STOP RUN
-           END-IF
-           IF WS-HUB-URL = SPACES
-               DISPLAY "ERR: HUB_API_URL!"
-               STOP RUN
-           END-IF
-           IF WS-OPENAI-URL = SPACES
-               DISPLAY "ERR: OPENAI_API_URL!"
-               STOP RUN
-           END-IF
-
-           MOVE SPACES TO WS-VERIFY-URL
-           STRING TRIM(WS-HUB-URL)
-               "/verify"
-               DELIMITED SIZE
-               INTO WS-VERIFY-URL
-           END-STRING
-
-      *>   Init JSON newline
-           MOVE X"5C" TO WS-NL(1:1)
-           MOVE "n"    TO WS-NL(2:1)
+           PERFORM LOAD-ENV-VARS
 
       *>   Phase 1: Download & Extract
            PERFORM PHASE1-DOWNLOAD
@@ -1404,6 +1303,12 @@
            MOVE "req.json"
                TO WS-WORK-PATH
            OPEN OUTPUT WORK-FILE
+           IF WS-FS NOT = "00"
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-WORK-PATH)
+                   " FS=" WS-FS
+               STOP RUN
+           END-IF
            WRITE WORK-REC
                FROM WS-REQ-JSON
            CLOSE WORK-FILE
@@ -1705,6 +1610,12 @@
            MOVE "answer.json"
                TO WS-WORK-PATH
            OPEN OUTPUT WORK-FILE
+           IF WS-FS NOT = "00"
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-WORK-PATH)
+                   " FS=" WS-FS
+               STOP RUN
+           END-IF
            WRITE WORK-REC
                FROM WS-ANS-BUF
            CLOSE WORK-FILE
@@ -1794,283 +1705,10 @@
            END-PERFORM
            .
 
-      *> ============================================================
-      *> JSON-ESCAPE-STR
-      *> Input: WS-ESC-IN, WS-ESC-ILEN
-      *> Output: WS-ESC-OUT, WS-ESC-OLEN
-      *> ============================================================
-       JSON-ESCAPE-STR.
-           MOVE SPACES TO WS-ESC-OUT
-           MOVE 0 TO WS-ESC-OLEN
+       COPY JSONESCAPE-PROC.
 
-           PERFORM VARYING WS-ESC-I
-               FROM 1 BY 1
-               UNTIL WS-ESC-I
-                   > WS-ESC-ILEN
-               EVALUATE TRUE
-               WHEN WS-ESC-IN(
-                   WS-ESC-I:1)
-                   = WS-QT
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE WS-QT
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-               WHEN WS-ESC-IN(
-                   WS-ESC-I:1)
-                   = X"5C"
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-               WHEN WS-ESC-IN(
-                   WS-ESC-I:1)
-                   = X"0A"
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE "n"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-               WHEN WS-ESC-IN(
-                   WS-ESC-I:1)
-                   = X"0D"
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE "r"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-               WHEN WS-ESC-IN(
-                   WS-ESC-I:1)
-                   = X"09"
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE X"5C"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE "t"
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-               WHEN OTHER
-                   ADD 1
-                       TO WS-ESC-OLEN
-                   MOVE WS-ESC-IN(
-                       WS-ESC-I:1)
-                       TO WS-ESC-OUT(
-                       WS-ESC-OLEN:1)
-               END-EVALUATE
-           END-PERFORM
-           .
+       COPY JSONREAD-PROC.
 
-      *> ============================================================
-      *> READ-JSON-FILE
-      *> Input: WS-WORK-PATH
-      *> Output: WS-JBUF, WS-JLEN
-      *> ============================================================
-       READ-JSON-FILE.
-           MOVE SPACES TO WS-JBUF
-           MOVE 0 TO WS-JLEN
-           MOVE "N" TO WS-EOF
+       COPY JSONPARSE-PROC.
 
-           OPEN INPUT WORK-FILE
-           IF WS-FS NOT = "00"
-               EXIT PARAGRAPH
-           END-IF
-
-           PERFORM UNTIL WS-EOF = "Y"
-               READ WORK-FILE
-                   INTO WS-LINE
-                   AT END
-                       MOVE "Y"
-                           TO WS-EOF
-                   NOT AT END
-                       MOVE LENGTH(
-                           TRIM(WS-LINE
-                           TRAILING))
-                           TO WS-K
-                       IF WS-K > 0
-                           IF WS-JLEN > 0
-                               ADD 1
-                                 TO WS-JLEN
-                               MOVE " "
-                                 TO WS-JBUF(
-                                 WS-JLEN:1)
-                           END-IF
-                           IF WS-JLEN
-                               + WS-K
-                               < 32000
-                               MOVE
-                               WS-LINE(
-                               1:WS-K)
-                               TO WS-JBUF(
-                               WS-JLEN
-                               + 1:WS-K)
-                               ADD WS-K
-                               TO WS-JLEN
-                           END-IF
-                       END-IF
-               END-READ
-           END-PERFORM
-
-           CLOSE WORK-FILE
-           MOVE "N" TO WS-EOF
-           .
-
-      *> ============================================================
-      *> FIND-JSON-VAL
-      *> Input: WS-KEY-SEARCH, WS-JPOS
-      *> Uses: WS-JBUF, WS-JLEN
-      *> Output: WS-JVAL, WS-JPOS updated
-      *> ============================================================
-       FIND-JSON-VAL.
-           MOVE SPACES TO WS-JVAL
-           MOVE SPACES TO WS-TMP
-           STRING WS-QT
-               TRIM(WS-KEY-SEARCH)
-               WS-QT
-               DELIMITED SIZE
-               INTO WS-TMP
-           END-STRING
-
-           MOVE 0 TO WS-KEY-POS
-           PERFORM VARYING WS-FJV-POS
-               FROM WS-JPOS BY 1
-               UNTIL WS-FJV-POS
-                   > WS-JLEN
-               OR WS-KEY-POS > 0
-               IF WS-FJV-POS
-                   + LENGTH(
-                   TRIM(WS-TMP))
-                   - 1 <= WS-JLEN
-               AND WS-JBUF(
-                   WS-FJV-POS:
-                   LENGTH(
-                   TRIM(WS-TMP)))
-                   = TRIM(WS-TMP)
-                   MOVE WS-FJV-POS
-                       TO WS-KEY-POS
-               END-IF
-           END-PERFORM
-
-           IF WS-KEY-POS = 0
-               EXIT PARAGRAPH
-           END-IF
-
-           COMPUTE WS-FJV-POS =
-               WS-KEY-POS
-               + LENGTH(
-               TRIM(WS-TMP))
-           PERFORM UNTIL
-               WS-FJV-POS > WS-JLEN
-               OR WS-JBUF(
-               WS-FJV-POS:1) = ":"
-               ADD 1 TO WS-FJV-POS
-           END-PERFORM
-           ADD 1 TO WS-FJV-POS
-
-           PERFORM UNTIL
-               WS-FJV-POS > WS-JLEN
-               OR WS-JBUF(
-               WS-FJV-POS:1)
-               NOT = " "
-               ADD 1 TO WS-FJV-POS
-           END-PERFORM
-
-           IF WS-JBUF(
-               WS-FJV-POS:1) = WS-QT
-               ADD 1 TO WS-FJV-POS
-               MOVE WS-FJV-POS
-                   TO WS-VAL-START
-               PERFORM UNTIL
-                   WS-FJV-POS
-                   > WS-JLEN
-                   IF WS-JBUF(
-                       WS-FJV-POS:1)
-                       = WS-QT
-                       IF WS-FJV-POS
-                           > 1
-                       AND WS-JBUF(
-                           WS-FJV-POS
-                           - 1:1)
-                           = X"5C"
-                           ADD 1
-                           TO WS-FJV-POS
-                       ELSE
-                           EXIT PERFORM
-                       END-IF
-                   ELSE
-                       ADD 1
-                       TO WS-FJV-POS
-                   END-IF
-               END-PERFORM
-               COMPUTE WS-VAL-END =
-                   WS-FJV-POS - 1
-               IF WS-VAL-END
-                   >= WS-VAL-START
-               AND WS-VAL-END
-                   - WS-VAL-START
-                   + 1 <= 8000
-                   MOVE WS-JBUF(
-                       WS-VAL-START:
-                       WS-VAL-END
-                       - WS-VAL-START
-                       + 1) TO WS-JVAL
-               END-IF
-               ADD 1 TO WS-FJV-POS
-           ELSE
-               MOVE WS-FJV-POS
-                   TO WS-VAL-START
-               PERFORM UNTIL
-                   WS-FJV-POS
-                   > WS-JLEN
-                   OR WS-JBUF(
-                   WS-FJV-POS:1)
-                   = ","
-                   OR WS-JBUF(
-                   WS-FJV-POS:1)
-                   = "}"
-                   OR WS-JBUF(
-                   WS-FJV-POS:1)
-                   = "]"
-                   OR WS-JBUF(
-                   WS-FJV-POS:1)
-                   = " "
-                   ADD 1
-                   TO WS-FJV-POS
-               END-PERFORM
-               COMPUTE WS-VAL-END =
-                   WS-FJV-POS - 1
-               IF WS-VAL-END
-                   >= WS-VAL-START
-                   MOVE WS-JBUF(
-                       WS-VAL-START:
-                       WS-VAL-END
-                       - WS-VAL-START
-                       + 1) TO WS-JVAL
-               END-IF
-           END-IF
-           MOVE WS-FJV-POS
-               TO WS-JPOS
-           .
+       COPY ENVLOAD-PROC.

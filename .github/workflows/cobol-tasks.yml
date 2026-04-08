@@ -49,7 +49,7 @@ jobs:
 
       - name: Compile
         working-directory: S01E01
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S01E01
@@ -90,7 +90,7 @@ jobs:
 
       - name: Compile
         working-directory: S01E02
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S01E02
@@ -149,8 +149,9 @@ jobs:
 
       - name: Deploy source to azyl
         run: |
-          ssh azyl "mkdir -p ~/cobol-deploy"
+          ssh azyl "mkdir -p ~/cobol-deploy/copybooks"
           scp S01E03/app.cob S01E03/Containerfile S01E03/start.sh azyl:~/cobol-deploy/
+          scp copybooks/*.cpy azyl:~/cobol-deploy/copybooks/
 
       - name: Build container on azyl
         run: |
@@ -219,7 +220,7 @@ jobs:
 
       - name: Compile
         working-directory: S01E04
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S01E04
@@ -259,7 +260,7 @@ jobs:
 
       - name: Compile
         working-directory: S01E05
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S01E05
@@ -298,7 +299,7 @@ jobs:
 
       - name: Compile
         working-directory: S02E01
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S02E01
@@ -336,7 +337,7 @@ jobs:
 
       - name: Compile
         working-directory: S02E04
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S02E04
@@ -376,7 +377,7 @@ jobs:
 
       - name: Compile
         working-directory: S02E03
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S02E03
@@ -416,7 +417,7 @@ jobs:
 
       - name: Compile
         working-directory: S02E05
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S02E05
@@ -456,7 +457,7 @@ jobs:
 
       - name: Compile
         working-directory: S03E01
-        run: cobc -x -o app app.cob -Q "-Wl,--no-as-needed" -lz
+        run: cobc -x -I ../copybooks/ -o app app.cob -Q "-Wl,--no-as-needed" -lz
 
       - name: Run
         working-directory: S03E01
@@ -496,7 +497,7 @@ jobs:
 
       - name: Compile
         working-directory: S03E02
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S03E02
@@ -536,7 +537,7 @@ jobs:
 
       - name: Compile
         working-directory: S03E03
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S03E03
@@ -595,12 +596,13 @@ jobs:
 
       - name: Deploy source to azyl
         run: |
-          ssh azyl "mkdir -p ~/s03e04-deploy"
+          ssh azyl "mkdir -p ~/s03e04-deploy/copybooks"
           scp S03E04/app.cob azyl:~/s03e04-deploy/
+          scp copybooks/*.cpy azyl:~/s03e04-deploy/copybooks/
 
       - name: Compile on azyl
         run: |
-          ssh azyl "export PATH=~/local/usr/bin:\$PATH && export LD_LIBRARY_PATH=~/local/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH && export COB_CONFIG_DIR=~/local/etc/gnucobol && export CPATH=~/local/usr/include/x86_64-linux-gnu:~/local/usr/include:\$CPATH && export LIBRARY_PATH=~/local/usr/lib/x86_64-linux-gnu:\$LIBRARY_PATH && cd ~/s03e04-deploy && cobc -x -o app app.cob"
+          ssh azyl "export PATH=~/local/usr/bin:\$PATH && export LD_LIBRARY_PATH=~/local/usr/lib/x86_64-linux-gnu:\$LD_LIBRARY_PATH && export COB_CONFIG_DIR=~/local/etc/gnucobol && export CPATH=~/local/usr/include/x86_64-linux-gnu:~/local/usr/include:\$CPATH && export LIBRARY_PATH=~/local/usr/lib/x86_64-linux-gnu:\$LIBRARY_PATH && cd ~/s03e04-deploy && cobc -x -I copybooks/ -o app app.cob"
 
       - name: Start server
         run: |
@@ -672,7 +674,7 @@ jobs:
 
       - name: Compile
         working-directory: S03E05
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S03E05
@@ -712,7 +714,7 @@ jobs:
 
       - name: Compile
         working-directory: S04E01
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S04E01
@@ -752,7 +754,7 @@ jobs:
 
       - name: Compile
         working-directory: S04E02
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S04E02
@@ -792,7 +794,7 @@ jobs:
 
       - name: Compile
         working-directory: S04E03
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S04E03
@@ -832,7 +834,7 @@ jobs:
 
       - name: Compile
         working-directory: S04E04
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S04E04
@@ -872,7 +874,7 @@ jobs:
 
       - name: Compile
         working-directory: S04E05
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S04E05
@@ -912,10 +914,50 @@ jobs:
 
       - name: Compile
         working-directory: S05E01
-        run: cobc -x -free -o app app.cob
+        run: cobc -x -free -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S05E01
+        env:
+          HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
+          HUB_API_URL: ${{ secrets.HUB_API_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
+        run: |
+          set +e
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
+            echo ""
+            echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in output"
+            exit 1
+          fi
+
+  s05e02:
+    name: S05E02 - Phonecall
+    needs: [s05e01]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install GnuCOBOL
+        run: sudo apt-get update && sudo apt-get install -y gnucobol4
+
+      - name: Mask sensitive values
+        run: |
+          echo "::add-mask::${{ secrets.HUB_API_URL }}"
+          echo "::add-mask::${{ secrets.OPENAI_API_URL }}"
+
+      - name: Compile
+        working-directory: S05E02
+        run: cobc -x -I ../copybooks/ -o app app.cob
+
+      - name: Run
+        working-directory: S05E02
         env:
           HUB_API_KEY: ${{ secrets.HUB_API_KEY }}
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
@@ -952,7 +994,7 @@ jobs:
 
       - name: Compile
         working-directory: S02E02
-        run: cobc -x -o app app.cob
+        run: cobc -x -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S02E02

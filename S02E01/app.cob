@@ -25,22 +25,24 @@
        01  WORK-REC                PIC X(8000).
 
        WORKING-STORAGE SECTION.
-      *> -- Config --
+      *> === Environment ===
        01  WS-HUB-KEY              PIC X(50).
+       01  WS-HUB-URL              PIC X(100).
        01  WS-QT                   PIC X(1) VALUE '"'.
+
+      *> === File I/O ===
        01  WS-FS                   PIC XX.
        01  WS-WORK-PATH            PIC X(100) VALUE "work.tmp".
 
-      *> -- URLs --
-       01  WS-HUB-URL              PIC X(100).
+      *> === HTTP ===
        01  WS-VERIFY-URL           PIC X(200).
        01  WS-DATA-URL             PIC X(200).
-       01  WS-TASK-NAME            PIC X(20) VALUE "categorize".
-
-      *> -- System command --
        01  WS-CMD                  PIC X(4000).
+       01  WS-PAYLOAD              PIC X(4000).
+       01  WS-STATUS-CODE          PIC X(3).
 
-      *> -- Prompt template (use X"0A" for real newlines) --
+      *> === Task Configuration ===
+       01  WS-TASK-NAME            PIC X(20) VALUE "categorize".
        01  WS-PROMPT-TPL           PIC X(300) VALUE
            "Reply DNG or NEU only." & X"0A"
            & "DNG if weapon,spear,bow,arrow,sword,"
@@ -50,18 +52,16 @@
            & "Tools,parts,cables=NEU." & X"0A"
            & "Else NEU." & X"0A".
 
-      *> -- CSV parsing --
+      *> === CSV Parsing ===
        01  WS-CSV-PATH             PIC X(100) VALUE
            "categorize.csv".
        01  WS-CSV-LINE             PIC X(2000).
        01  WS-CSV-HEADER           PIC X(1) VALUE "Y".
        01  WS-FIELD-PTR            PIC 9(4).
-
-      *> -- CSV fields --
        01  WS-FLD-CODE             PIC X(20).
        01  WS-FLD-DESC             PIC X(500).
 
-      *> -- Items table (max 50) --
+      *> === Task Data ===
        01  WS-MAX-ITEMS            PIC 9(3) VALUE 50.
        01  WS-ITEM-COUNT           PIC 9(3) VALUE 0.
        01  WS-ITEMS-TABLE.
@@ -69,55 +69,28 @@
                10  WS-I-CODE       PIC X(20).
                10  WS-I-DESC       PIC X(500).
 
-      *> -- Request/Response --
-       01  WS-PAYLOAD              PIC X(4000).
-       01  WS-RESP-BUF             PIC X(8000).
-       01  WS-RESP-LEN             PIC 9(5) VALUE 0.
+      *> === JSON Parsing (copybooks) ===
+       COPY JSONPARSE-WS.
+       COPY JSONREAD-WS.
+       COPY JSONESCAPE-WS.
 
-      *> -- Counters --
+      *> === Task-specific ===
+       01  WS-PROMPT               PIC X(1000).
+
+      *> === Constants ===
+       01  WS-MAX-RETRIES          PIC 9(1) VALUE 5.
+       01  WS-RETRY-DELAY          PIC 9(2) VALUE 2.
+
+      *> === Control Flow ===
        01  WS-IDX                  PIC 9(3).
        01  WS-TOTAL-CSV            PIC 9(5) VALUE 0.
        01  WS-TALLY-CNT            PIC 9(4) VALUE 0.
-
-      *> -- File reading --
-       01  WS-EOF                  PIC X VALUE "N".
-       01  WS-LINE                 PIC X(4000).
-       01  WS-K                    PIC 9(5).
-
-      *> -- Flag --
        01  WS-FLAG-FOUND           PIC X VALUE "N".
-
-      *> -- Prompt building --
-       01  WS-PROMPT               PIC X(1000).
-
-      *> -- JSON escape buffer --
-       01  WS-ESC-BUF              PIC X(2000).
-       01  WS-ESC-LEN              PIC 9(5).
-       01  WS-ESC-I                PIC 9(5).
-       01  WS-ESC-SRC-LEN          PIC 9(5).
-
-      *> -- Retry --
-       01  WS-MAX-RETRIES          PIC 9(2) VALUE 5.
        01  WS-ATTEMPT              PIC 9(2).
        01  WS-RETRY-DONE           PIC X VALUE "N".
        01  WS-SLEEP-SECS           PIC 9(3).
-       01  WS-STATUS-CODE          PIC X(3).
-
-      *> -- JSON parsing (for output/code fields) --
-       01  WS-KEY-SEARCH           PIC X(50).
-       01  WS-KEY-POS              PIC 9(5).
-       01  WS-VAL-START            PIC 9(5).
-       01  WS-VAL-END              PIC 9(5).
-       01  WS-FJV-POS              PIC 9(5).
-       01  WS-JVAL                 PIC X(500).
-       01  WS-TMP                  PIC X(500).
-       01  WS-JPOS                 PIC 9(5).
-
-      *> -- Code value --
        01  WS-CODE-VAL             PIC X(20).
        01  WS-CODE-NUM             PIC S9(4).
-
-      *> -- Main retry --
        01  WS-MAIN-ATTEMPT         PIC 9(2) VALUE 0.
        01  WS-MAX-MAIN-RETRIES     PIC 9(2) VALUE 3.
        01  WS-CLASS-ERROR          PIC X VALUE "N".
@@ -147,8 +120,8 @@
            MOVE "N" TO WS-FLAG-FOUND
            MOVE 0 TO WS-MAIN-ATTEMPT
 
-           PERFORM STEP-1-FETCH-CSV
-           PERFORM STEP-2-PARSE-CSV
+           PERFORM FETCH-CSV-DATA
+           PERFORM PARSE-CSV-ITEMS
 
            PERFORM UNTIL WS-MAIN-ATTEMPT
                >= WS-MAX-MAIN-RETRIES
@@ -158,8 +131,8 @@
                DISPLAY " "
                DISPLAY "=== Proba "
                    WS-MAIN-ATTEMPT " ==="
-               PERFORM STEP-3-RESET-BUDGET
-               PERFORM STEP-4-CLASSIFY-ITEMS
+               PERFORM RESET-BUDGET
+               PERFORM CLASSIFY-ALL-ITEMS
                IF WS-CLASS-ERROR = "Y"
                    DISPLAY "  Blad - ponowna proba"
                    MOVE 3 TO WS-SLEEP-SECS
@@ -177,9 +150,9 @@
            STOP RUN.
 
       *> ============================================================
-      *> STEP 1: Download CSV via curl GET
+      *> FETCH-CSV-DATA: Download CSV via curl GET
       *> ============================================================
-       STEP-1-FETCH-CSV.
+       FETCH-CSV-DATA.
            DISPLAY " "
            DISPLAY "--- Krok 1: Pobieranie CSV ---"
 
@@ -208,9 +181,9 @@
            .
 
       *> ============================================================
-      *> STEP 2: Parse CSV into items table
+      *> PARSE-CSV-ITEMS: Parse CSV into items table
       *> ============================================================
-       STEP-2-PARSE-CSV.
+       PARSE-CSV-ITEMS.
            DISPLAY " "
            DISPLAY "--- Krok 2: Parsowanie CSV ---"
 
@@ -286,9 +259,9 @@
            .
 
       *> ============================================================
-      *> STEP 3: Reset budget via POST
+      *> RESET-BUDGET: Reset budget via POST
       *> ============================================================
-       STEP-3-RESET-BUDGET.
+       RESET-BUDGET.
            DISPLAY " "
            DISPLAY "--- Krok 3: Reset budzetu ---"
 
@@ -307,6 +280,12 @@
 
       *>   Write payload to temp file
            OPEN OUTPUT WORK-FILE
+           IF WS-FS NOT = "00"
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-WORK-PATH)
+                   " FS=" WS-FS
+               STOP RUN
+           END-IF
            WRITE WORK-REC FROM WS-PAYLOAD
            CLOSE WORK-FILE
 
@@ -327,16 +306,16 @@
 
       *>   Read and display response
            MOVE "resp.json" TO WS-WORK-PATH
-           PERFORM READ-RESPONSE-FILE
+           PERFORM READ-JSON-FILE
            MOVE "work.tmp" TO WS-WORK-PATH
 
-           DISPLAY "  Reset: " TRIM(WS-RESP-BUF)(1:200)
+           DISPLAY "  Reset: " TRIM(WS-JBUF)(1:200)
            .
 
       *> ============================================================
-      *> STEP 4: Classify each item sequentially
+      *> CLASSIFY-ALL-ITEMS: Classify each item sequentially
       *> ============================================================
-       STEP-4-CLASSIFY-ITEMS.
+       CLASSIFY-ALL-ITEMS.
            DISPLAY " "
            DISPLAY "--- Krok 4: Klasyfikacja pozycji ---"
 
@@ -361,7 +340,8 @@
            END-STRING
 
       *>   Escape prompt for safe JSON embedding
-           PERFORM ESCAPE-STRING-FOR-JSON
+           MOVE WS-PROMPT TO WS-ESC-IN
+           PERFORM JSON-ESCAPE-STR
 
       *>   Build JSON payload
            INITIALIZE WS-PAYLOAD
@@ -372,7 +352,7 @@
                WS-QT TRIM(WS-TASK-NAME) WS-QT ","
                WS-QT "answer" WS-QT ":{"
                WS-QT "prompt" WS-QT ":"
-               WS-QT WS-ESC-BUF(1:WS-ESC-LEN)
+               WS-QT WS-ESC-OUT(1:WS-ESC-OLEN)
                WS-QT
                "}}"
                DELIMITED SIZE INTO WS-PAYLOAD
@@ -380,6 +360,12 @@
 
       *>   Write payload to temp file
            OPEN OUTPUT WORK-FILE
+           IF WS-FS NOT = "00"
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-WORK-PATH)
+                   " FS=" WS-FS
+               STOP RUN
+           END-IF
            WRITE WORK-REC FROM WS-PAYLOAD
            CLOSE WORK-FILE
 
@@ -419,7 +405,8 @@
                        TRIM(WS-I-CODE(WS-IDX))
                        " " WS-STATUS-CODE
                        " retry " WS-ATTEMPT
-                   MOVE 2 TO WS-SLEEP-SECS
+                   MOVE WS-RETRY-DELAY
+                       TO WS-SLEEP-SECS
                    CALL "C$SLEEP" USING WS-SLEEP-SECS
                    ADD 1 TO WS-ATTEMPT
                ELSE
@@ -429,7 +416,7 @@
 
       *>   Read response body
            MOVE "resp.json" TO WS-WORK-PATH
-           PERFORM READ-RESPONSE-FILE
+           PERFORM READ-JSON-FILE
            MOVE "work.tmp" TO WS-WORK-PATH
 
       *>   Extract "output" from debug
@@ -443,15 +430,15 @@
 
       *>   Check for flag {FLG:...}
            MOVE 0 TO WS-TALLY-CNT
-           IF WS-RESP-LEN > 0
-               INSPECT WS-RESP-BUF(1:WS-RESP-LEN)
+           IF WS-JLEN > 0
+               INSPECT WS-JBUF(1:WS-JLEN)
                    TALLYING WS-TALLY-CNT FOR ALL "FLG"
            END-IF
            IF WS-TALLY-CNT > 0
                MOVE "Y" TO WS-FLAG-FOUND
                DISPLAY " "
                DISPLAY "*** FLAGA ZNALEZIONA! ***"
-               DISPLAY TRIM(WS-RESP-BUF)(1:500)
+               DISPLAY TRIM(WS-JBUF)(1:500)
                EXIT PARAGRAPH
            END-IF
 
@@ -464,85 +451,12 @@
 
            IF WS-CODE-VAL(1:1) = "-"
                DISPLAY "  BLAD: "
-                   TRIM(WS-RESP-BUF)(1:300)
+                   TRIM(WS-JBUF)(1:300)
                MOVE "Y" TO WS-CLASS-ERROR
            END-IF
            .
 
-      *> ============================================================
-      *> ESCAPE-STRING-FOR-JSON: Escape WS-PROMPT for JSON
-      *> Input:  WS-PROMPT
-      *> Output: WS-ESC-BUF, WS-ESC-LEN
-      *> ============================================================
-       ESCAPE-STRING-FOR-JSON.
-           MOVE SPACES TO WS-ESC-BUF
-           MOVE 0 TO WS-ESC-LEN
-           MOVE LENGTH(TRIM(WS-PROMPT))
-               TO WS-ESC-SRC-LEN
-
-           PERFORM VARYING WS-ESC-I
-               FROM 1 BY 1
-               UNTIL WS-ESC-I > WS-ESC-SRC-LEN
-               EVALUATE TRUE
-               WHEN WS-PROMPT(WS-ESC-I:1)
-                   = WS-QT
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE WS-QT
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-               WHEN WS-PROMPT(WS-ESC-I:1)
-                   = X"5C"
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-               WHEN WS-PROMPT(WS-ESC-I:1)
-                   = X"0A"
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE "n"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-               WHEN WS-PROMPT(WS-ESC-I:1)
-                   = X"0D"
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE "r"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-               WHEN WS-PROMPT(WS-ESC-I:1)
-                   = X"09"
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE X"5C"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE "t"
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-               WHEN OTHER
-                   ADD 1 TO WS-ESC-LEN
-                   MOVE WS-PROMPT(
-                       WS-ESC-I:1)
-                       TO WS-ESC-BUF(
-                       WS-ESC-LEN:1)
-               END-EVALUATE
-           END-PERFORM
-           .
+      *> (ESCAPE-STRING-FOR-JSON removed - use JSON-ESCAPE-STR)
 
       *> ============================================================
       *> READ-HTTP-STATUS: Get status code from headers.tmp
@@ -580,136 +494,9 @@
            MOVE "N" TO WS-EOF
            .
 
-      *> ============================================================
-      *> READ-RESPONSE-FILE: Read file into WS-RESP-BUF
-      *> ============================================================
-       READ-RESPONSE-FILE.
-           MOVE SPACES TO WS-RESP-BUF
-           MOVE 0 TO WS-RESP-LEN
-           MOVE "N" TO WS-EOF
+      *> (READ-RESPONSE-FILE removed - use READ-JSON-FILE)
 
-           OPEN INPUT WORK-FILE
-           IF WS-FS NOT = "00"
-               EXIT PARAGRAPH
-           END-IF
-
-           PERFORM UNTIL WS-EOF = "Y"
-               READ WORK-FILE INTO WS-LINE
-                   AT END
-                       MOVE "Y" TO WS-EOF
-                   NOT AT END
-                       MOVE LENGTH(TRIM(WS-LINE
-                           TRAILING)) TO WS-K
-                       IF WS-K > 0
-                           IF WS-RESP-LEN > 0
-                               ADD 1 TO WS-RESP-LEN
-                               MOVE " "
-                                   TO WS-RESP-BUF(
-                                   WS-RESP-LEN:1)
-                           END-IF
-                           MOVE WS-LINE(1:WS-K)
-                               TO WS-RESP-BUF(
-                               WS-RESP-LEN + 1:WS-K)
-                           ADD WS-K TO WS-RESP-LEN
-                       END-IF
-               END-READ
-           END-PERFORM
-
-           CLOSE WORK-FILE
-           MOVE "N" TO WS-EOF
-           .
-
-      *> ============================================================
-      *> FIND-JSON-VAL: Find "key":"value" in WS-RESP-BUF
-      *> Input: WS-KEY-SEARCH, WS-JPOS (start)
-      *> Output: WS-JVAL, WS-JPOS (updated)
-      *> ============================================================
-       FIND-JSON-VAL.
-           MOVE SPACES TO WS-JVAL
-           MOVE SPACES TO WS-TMP
-           STRING WS-QT TRIM(WS-KEY-SEARCH) WS-QT
-               DELIMITED SIZE INTO WS-TMP
-           END-STRING
-
-      *>   Find the key
-           MOVE 0 TO WS-KEY-POS
-           PERFORM VARYING WS-FJV-POS FROM WS-JPOS BY 1
-               UNTIL WS-FJV-POS > WS-RESP-LEN
-               OR WS-KEY-POS > 0
-               IF WS-FJV-POS + LENGTH(TRIM(WS-TMP))
-                   - 1 <= WS-RESP-LEN
-               AND WS-RESP-BUF(WS-FJV-POS:
-                   LENGTH(TRIM(WS-TMP)))
-                   = TRIM(WS-TMP)
-                   MOVE WS-FJV-POS TO WS-KEY-POS
-               END-IF
-           END-PERFORM
-
-           IF WS-KEY-POS = 0
-               EXIT PARAGRAPH
-           END-IF
-
-      *>   Skip past key and colon
-           COMPUTE WS-FJV-POS =
-               WS-KEY-POS + LENGTH(TRIM(WS-TMP))
-           PERFORM UNTIL WS-FJV-POS > WS-RESP-LEN
-               OR WS-RESP-BUF(WS-FJV-POS:1) = ":"
-               ADD 1 TO WS-FJV-POS
-           END-PERFORM
-           ADD 1 TO WS-FJV-POS
-
-      *>   Skip whitespace
-           PERFORM UNTIL WS-FJV-POS > WS-RESP-LEN
-               OR WS-RESP-BUF(WS-FJV-POS:1) NOT = " "
-               ADD 1 TO WS-FJV-POS
-           END-PERFORM
-
-      *>   Check if string value (starts with quote)
-           IF WS-RESP-BUF(WS-FJV-POS:1) = WS-QT
-               ADD 1 TO WS-FJV-POS
-               MOVE WS-FJV-POS TO WS-VAL-START
-      *>       Find closing quote (skip escaped \")
-               PERFORM UNTIL WS-FJV-POS > WS-RESP-LEN
-                   IF WS-RESP-BUF(WS-FJV-POS:1) = WS-QT
-                       IF WS-FJV-POS > 1
-                       AND WS-RESP-BUF(
-                           WS-FJV-POS - 1:1)
-                           = X"5C"
-                           ADD 1 TO WS-FJV-POS
-                       ELSE
-                           EXIT PERFORM
-                       END-IF
-                   ELSE
-                       ADD 1 TO WS-FJV-POS
-                   END-IF
-               END-PERFORM
-               COMPUTE WS-VAL-END =
-                   WS-FJV-POS - 1
-               IF WS-VAL-END >= WS-VAL-START
-               AND WS-VAL-END - WS-VAL-START
-                   + 1 <= 500
-                   MOVE WS-RESP-BUF(WS-VAL-START:
-                       WS-VAL-END - WS-VAL-START
-                       + 1) TO WS-JVAL
-               END-IF
-               ADD 1 TO WS-FJV-POS
-           ELSE
-      *>       Numeric: read until delimiter
-               MOVE WS-FJV-POS TO WS-VAL-START
-               PERFORM UNTIL WS-FJV-POS > WS-RESP-LEN
-                   OR WS-RESP-BUF(WS-FJV-POS:1) = ","
-                   OR WS-RESP-BUF(WS-FJV-POS:1) = "}"
-                   OR WS-RESP-BUF(WS-FJV-POS:1) = "]"
-                   OR WS-RESP-BUF(WS-FJV-POS:1) = " "
-                   ADD 1 TO WS-FJV-POS
-               END-PERFORM
-               COMPUTE WS-VAL-END =
-                   WS-FJV-POS - 1
-               IF WS-VAL-END >= WS-VAL-START
-                   MOVE WS-RESP-BUF(WS-VAL-START:
-                       WS-VAL-END - WS-VAL-START
-                       + 1) TO WS-JVAL
-               END-IF
-           END-IF
-           MOVE WS-FJV-POS TO WS-JPOS
-           .
+      *> === Shared paragraphs (copybooks) ===
+       COPY JSONPARSE-PROC.
+       COPY JSONREAD-PROC.
+       COPY JSONESCAPE-PROC.

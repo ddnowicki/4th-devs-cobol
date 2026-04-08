@@ -51,35 +51,39 @@
        01  BIN-OUT-BYTE            PIC X(1).
 
        WORKING-STORAGE SECTION.
-      *> ============================================================
-      *> CONFIG
-      *> ============================================================
+      *> === Environment ===
        01  WS-HUB-KEY              PIC X(50).
        01  WS-HUB-URL              PIC X(100).
        01  WS-OR-KEY               PIC X(200).
        01  WS-QT                   PIC X(1) VALUE '"'.
+
+      *> === File I/O ===
        01  WS-FS                   PIC XX.
        01  WS-JFS                  PIC XX.
        01  WS-BFS                  PIC XX.
        01  WS-BFS2                 PIC XX.
        01  WS-WORK-PATH            PIC X(200) VALUE "work.tmp".
        01  WS-BIN-PATH             PIC X(200).
-
-       01  WS-VERIFY-URL           PIC X(200).
-       01  WS-BOARD-URL            PIC X(300).
-       01  WS-SOLVED-URL           PIC X(300).
-       01  WS-API-URL              PIC X(200).
-       01  WS-TASK-NAME            PIC X(20) VALUE "electricity".
-
-       01  WS-CMD                  PIC X(8000).
-       01  WS-JSON-LEN             PIC 9(7).
        01  WS-EOF                  PIC X VALUE "N".
        01  WS-LINE                 PIC X(65000).
        01  WS-BIN-EOF              PIC 9 VALUE 0.
 
-      *> ============================================================
-      *> CELLS
-      *> ============================================================
+      *> === HTTP ===
+       01  WS-VERIFY-URL           PIC X(200).
+       01  WS-BOARD-URL            PIC X(300).
+       01  WS-SOLVED-URL           PIC X(300).
+       01  WS-API-URL              PIC X(200).
+       01  WS-CMD                  PIC X(8000).
+       01  WS-JSON-LEN             PIC 9(7).
+
+      *> === Task Configuration ===
+       01  WS-TASK-NAME            PIC X(20) VALUE "electricity".
+
+      *> === PNG/Deflate Constants ===
+       01  WS-END-OF-BLOCK         PIC 9(3) COMP-5 VALUE 256.
+       01  WS-MAX-HUFFMAN-BITS     PIC 9(2) COMP-5 VALUE 15.
+
+      *> === Cells ===
        01  WS-CELL-TABLE.
            05  WS-CELL OCCURS 9 TIMES.
                10  WS-CELL-ID      PIC X(3).
@@ -628,7 +632,7 @@
       *>   Step 1: Download both board PNGs
            DISPLAY " "
            DISPLAY "[1/6] Downloading board PNGs..."
-           PERFORM STEP-DOWNLOAD-PNGS
+           PERFORM DOWNLOAD-BOARD-PNGS
 
       *>   Step 2: Decode PNG -> grayscale for current board
            DISPLAY "[2/6] Decoding PNGs..."
@@ -824,9 +828,9 @@
            .
 
       *> ============================================================
-      *> STEP-DOWNLOAD-PNGS
+      *> DOWNLOAD-BOARD-PNGS
       *> ============================================================
-       STEP-DOWNLOAD-PNGS.
+       DOWNLOAD-BOARD-PNGS.
            INITIALIZE WS-CMD
            STRING "curl -s -o board_cur.png " WS-QT
                TRIM(WS-BOARD-URL) "?reset=1" WS-QT
@@ -1245,7 +1249,7 @@
        BUILD-HUFFMAN-TABLE.
       *>   Count code lengths
            PERFORM VARYING WS-HB-I FROM 1 BY 1
-               UNTIL WS-HB-I > 15
+               UNTIL WS-HB-I > WS-MAX-HUFFMAN-BITS
                MOVE 0 TO WS-HB-BLC(WS-HB-I)
            END-PERFORM
            MOVE 0 TO WS-HB-MAXBITS
@@ -1263,7 +1267,7 @@
       *>   Compute next code for each length
            MOVE 0 TO WS-HB-NC(1)
            PERFORM VARYING WS-HB-BITS FROM 2 BY 1
-               UNTIL WS-HB-BITS > 15
+               UNTIL WS-HB-BITS > WS-MAX-HUFFMAN-BITS
                COMPUTE WS-HB-NC(WS-HB-BITS) =
                    (WS-HB-NC(WS-HB-BITS - 1)
                     + WS-HB-BLC(WS-HB-BITS - 1)) * 2
@@ -1319,7 +1323,7 @@
            MOVE 0 TO WS-HD-CODE
            MOVE 0 TO WS-HD-BITS
 
-           PERFORM UNTIL WS-HD-BITS > 15
+           PERFORM UNTIL WS-HD-BITS > WS-MAX-HUFFMAN-BITS
       *>       Read one bit (LSB-first in byte, MSB-first code)
                COMPUTE WS-RB-BYTEPOS =
                    WS-ZDATA-START + WS-BIT-POS / 8
@@ -1396,7 +1400,7 @@
                    ADD 1 TO WS-OUT-LEN
                    MOVE CHAR(WS-DEC-SYM + 1)
                        TO WS-OUT-BUF(WS-OUT-LEN:1)
-               ELSE IF WS-DEC-SYM = 256
+               ELSE IF WS-DEC-SYM = WS-END-OF-BLOCK
       *>           End of block
                    EXIT PERFORM
                ELSE
@@ -2366,41 +2370,7 @@
                ADD WS-PW-CHUNK-LEN TO WS-PNGOUT-LEN
            END-IF
 
-      *>   CRC32 over type+data
-           MOVE 4294967295 TO WS-CRC32-VAL
-      *>   Process type bytes
-           PERFORM VARYING WS-TMP-I FROM 1 BY 1
-               UNTIL WS-TMP-I > 4
-               COMPUTE WS-CRC32-IDX =
-                   MOD(ORD(WS-PW-CHUNK-TYPE(WS-TMP-I:1)) - 1,
-                   256)
-               COMPUTE WS-CRC32-IDX =
-                   MOD(WS-CRC32-VAL, 256)
-               COMPUTE WS-CRC32-IDX =
-                   MOD(WS-CRC32-IDX, 256)
-               PERFORM CRC32-XOR-BYTE-TYPE
-           END-PERFORM
-      *>   Process data bytes
-           IF WS-PW-CHUNK-LEN > 0
-               PERFORM VARYING WS-TMP-I FROM 1 BY 1
-                   UNTIL WS-TMP-I > WS-PW-CHUNK-LEN
-                   PERFORM CRC32-XOR-BYTE-DATA
-               END-PERFORM
-           END-IF
-      *>   Final XOR
-           COMPUTE WS-CRC32-VAL =
-               4294967295 - WS-CRC32-VAL
-      *>   Hmm, XOR with 0xFFFFFFFF. In COBOL we need bitwise XOR.
-      *>   Let me use a different approach for CRC32.
-      *>   Actually, let me just compute CRC32 properly.
-
-      *>   Let me redo CRC32: use the table-driven approach
-      *>   CRC32 = crc ^ 0xFFFFFFFF (final)
-      *>   We need XOR which COBOL doesn't have natively.
-      *>   Use: a XOR b = a + b - 2*(a AND b)
-      *>   But AND is also not native. Let me use byte-by-byte.
-
-      *>   Actually, let me compute CRC32 with a cleaner approach.
+      *>   CRC32 over type+data (uses lookup table)
            PERFORM COMPUTE-CHUNK-CRC32-V2
 
       *>   Write CRC (4 bytes big-endian)
@@ -2533,115 +2503,7 @@
            .
 
       *> ============================================================
-      *> COMPUTE-CHUNK-CRC32: CRC32 over type+data
-      *> Uses WS-CRC32-TABLE
-      *> ============================================================
-       COMPUTE-CHUNK-CRC32.
-           MOVE 4294967295 TO WS-CRC32-VAL
-
-      *>   Process type bytes
-           PERFORM VARYING WS-TMP-I FROM 1 BY 1
-               UNTIL WS-TMP-I > 4
-               COMPUTE WS-BYTE-VAL =
-                   ORD(WS-PW-CHUNK-TYPE(WS-TMP-I:1)) - 1
-               PERFORM CRC32-UPDATE-BYTE
-           END-PERFORM
-
-      *>   Process data bytes
-           IF WS-PW-CHUNK-LEN > 0
-               PERFORM VARYING WS-TMP-I FROM 1 BY 1
-                   UNTIL WS-TMP-I > WS-PW-CHUNK-LEN
-                   COMPUTE WS-BYTE-VAL =
-                       ORD(WS-PW-CHUNK-DATA(WS-TMP-I:1)) - 1
-                   PERFORM CRC32-UPDATE-BYTE
-               END-PERFORM
-           END-IF
-
-      *>   Final XOR with 0xFFFFFFFF
-      *>   result = crc ^ 0xFFFFFFFF
-      *>   Since we started with 0xFFFFFFFF, and XOR twice = identity
-      *>   Actually: final = crc XOR 0xFFFFFFFF = NOT(crc)
-      *>   For unsigned 32-bit: NOT(x) = 4294967295 - x
-           COMPUTE WS-CRC32-VAL =
-               4294967295 - WS-CRC32-VAL
-           .
-
-      *> ============================================================
-      *> CRC32-UPDATE-BYTE: Update CRC32 with one byte
-      *> WS-CRC32-VAL is current CRC, WS-BYTE-VAL is byte (0-255)
-      *> crc = table[(crc XOR byte) & 0xFF] XOR (crc >> 8)
-      *> ============================================================
-       CRC32-UPDATE-BYTE.
-      *>   index = (crc XOR byte) & 0xFF
-      *>   First: (crc & 0xFF) XOR byte
-           COMPUTE WS-TMP-V = MOD(WS-CRC32-VAL, 256)
-           MOVE WS-BYTE-VAL TO WS-TMP-V2
-           PERFORM XOR-TWO-BYTES
-      *>   WS-TMP-V now has the XOR'd index (0-255)
-           COMPUTE WS-CRC32-IDX = WS-TMP-V + 1
-
-      *>   table_val = WS-CRC32-ENTRY(idx)
-      *>   crc >> 8
-           COMPUTE WS-TMP-V = WS-CRC32-VAL / 256
-
-      *>   result = table_val XOR (crc >> 8)
-      *>   Both are up to 32-bit. XOR byte by byte.
-           MOVE WS-CRC32-ENTRY(WS-CRC32-IDX) TO WS-CRC32-C
-      *>   XOR WS-CRC32-C with WS-TMP-V (both up to 4 bytes)
-           PERFORM CRC32-XOR-TWO-LONGS
-           MOVE WS-CRC32-C TO WS-CRC32-VAL
-           .
-
-      *> ============================================================
-      *> CRC32-XOR-TWO-LONGS: XOR WS-CRC32-C with WS-TMP-V
-      *> Both are 32-bit unsigned. Result in WS-CRC32-C.
-      *> ============================================================
-       CRC32-XOR-TWO-LONGS.
-      *>   Byte 0
-           COMPUTE WS-TMP-V2 = MOD(WS-TMP-V, 256)
-           COMPUTE WS-TMP-V3 = MOD(WS-CRC32-C, 256)
-           MOVE WS-TMP-V3 TO WS-PX-R
-           MOVE WS-TMP-V2 TO WS-PX-G
-           MOVE WS-TMP-V3 TO WS-TMP-V
-           MOVE WS-TMP-V2 TO WS-TMP-V2
-           PERFORM XOR-TWO-BYTES
-           MOVE WS-TMP-V TO WS-ADLER-A
-
-      *>   Restore WS-TMP-V for next bytes
-      *>   Actually we destroyed WS-TMP-V. We need to save it.
-      *>   Let me restructure this to avoid conflicts.
-
-      *>   Let me use a dedicated 4-byte XOR routine.
-      *>   Save the two longs first.
-           CONTINUE
-           .
-
-      *> OK, the CRC32 with byte-level XOR is getting complex.
-      *> Let me take a cleaner approach: compute CRC32 using
-      *> a bit-by-bit method that avoids needing XOR on large values.
-      *> Actually, let me just save/restore properly.
-
-      *> Revised CRC32 approach: use temporary storage
-      *> to XOR two 32-bit values byte by byte.
-
-      *> ============================================================
-      *> Actually, let me completely redo the CRC32 and XOR support
-      *> using 4-byte arrays to make it manageable.
-      *> ============================================================
-
-      *> I'll define 4-byte XOR working areas:
-      *> XOR-A, XOR-B, XOR-RESULT as 4-element byte arrays.
-      *> Then CRC32 uses those consistently.
-      *>
-      *> But wait - we can't add new data items in the middle of
-      *> the procedure division. All data must be in working storage.
-      *> I already have them defined above. Let me just use a cleaner
-      *> coding pattern.
-      *>
-      *> Let me restart the CRC32 with a clean implementation.
-
-      *> ============================================================
-      *> REIMPLEMENTED: COMPUTE-CHUNK-CRC32
+      *> COMPUTE-CHUNK-CRC32-V2: CRC32 over type+data
       *> Uses lookup table. Process byte-by-byte.
       *> ============================================================
        COMPUTE-CHUNK-CRC32-V2.
@@ -2856,6 +2718,11 @@
 
       *>   Write JSON to file
            OPEN OUTPUT JSON-FILE
+           IF WS-JFS NOT = "00"
+               DISPLAY "ERR: OPEN vision_req.json"
+                   " FS=" WS-JFS
+               STOP RUN
+           END-IF
            MOVE WS-BIG-JSON(1:WS-JSON-LEN) TO JSON-REC
            WRITE JSON-REC
            CLOSE JSON-FILE
@@ -2963,6 +2830,12 @@
            END-STRING
            MOVE "work.tmp" TO WS-WORK-PATH
            OPEN OUTPUT WORK-FILE
+           IF WS-FS NOT = "00"
+               DISPLAY "ERR: OPEN "
+                   TRIM(WS-WORK-PATH)
+                   " FS=" WS-FS
+               STOP RUN
+           END-IF
            WRITE WORK-REC FROM WS-PAYLOAD
            CLOSE WORK-FILE
 
@@ -3099,8 +2972,3 @@
            END-IF
            .
 
-      *> Dummy paragraphs that were referenced but superceded
-       CRC32-XOR-BYTE-TYPE.
-           CONTINUE.
-       CRC32-XOR-BYTE-DATA.
-           CONTINUE.
