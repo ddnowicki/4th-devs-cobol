@@ -148,6 +148,7 @@
        01  WS-SAN-OUT              PIC X(20).
        01  WS-SAN-POS              PIC 9(3).
        01  WS-SAN-OPOS             PIC 9(3).
+       01  WS-SAN-IDX              PIC 9(3).
        01  WS-SAN-CH               PIC X(1).
        01  WS-FIRST-FLAG           PIC X VALUE "Y".
 
@@ -1084,9 +1085,59 @@
                EXIT PARAGRAPH
            END-IF
 
-      *>   Unescape the response
+      *>   Unescape the response (inline: handles \n,\r,\t,\\,\")
+      *>   Copybook JSON-UNESCAPE-STR drops the escape char
+      *>   (e.g. "\n" -> "n") which breaks pipe-line parsing.
            MOVE WS-JVAL TO WS-ESC-IN
-           PERFORM JSON-UNESCAPE-STR
+           MOVE SPACES TO WS-ESC-OUT
+           MOVE 0 TO WS-ESC-OLEN
+           MOVE LENGTH(TRIM(WS-ESC-IN))
+               TO WS-ESC-ILEN
+           IF WS-ESC-ILEN > 0
+               MOVE 1 TO WS-ESC-I
+               PERFORM UNTIL
+                   WS-ESC-I > WS-ESC-ILEN
+                   IF WS-ESC-IN(
+                       WS-ESC-I:1) = X"5C"
+                   AND WS-ESC-I
+                       < WS-ESC-ILEN
+                       ADD 1 TO WS-ESC-I
+                       EVALUATE TRUE
+                       WHEN WS-ESC-IN(
+                           WS-ESC-I:1) = "n"
+                           ADD 1 TO WS-ESC-OLEN
+                           MOVE X"0A"
+                             TO WS-ESC-OUT(
+                             WS-ESC-OLEN:1)
+                       WHEN WS-ESC-IN(
+                           WS-ESC-I:1) = "r"
+                           ADD 1 TO WS-ESC-OLEN
+                           MOVE X"0D"
+                             TO WS-ESC-OUT(
+                             WS-ESC-OLEN:1)
+                       WHEN WS-ESC-IN(
+                           WS-ESC-I:1) = "t"
+                           ADD 1 TO WS-ESC-OLEN
+                           MOVE X"09"
+                             TO WS-ESC-OUT(
+                             WS-ESC-OLEN:1)
+                       WHEN OTHER
+                           ADD 1 TO WS-ESC-OLEN
+                           MOVE WS-ESC-IN(
+                               WS-ESC-I:1)
+                             TO WS-ESC-OUT(
+                             WS-ESC-OLEN:1)
+                       END-EVALUATE
+                   ELSE
+                       ADD 1 TO WS-ESC-OLEN
+                       MOVE WS-ESC-IN(
+                           WS-ESC-I:1)
+                         TO WS-ESC-OUT(
+                         WS-ESC-OLEN:1)
+                   END-IF
+                   ADD 1 TO WS-ESC-I
+               END-PERFORM
+           END-IF
            MOVE WS-ESC-OUT TO WS-LLM-RESP
            MOVE WS-ESC-OLEN TO WS-LLM-RLEN
 
@@ -1912,11 +1963,11 @@
                TO WS-SAN-POS
            MOVE 1 TO WS-SAN-OPOS
 
-           PERFORM VARYING WS-I
+           PERFORM VARYING WS-SAN-IDX
                FROM 1 BY 1
-               UNTIL WS-I > WS-SAN-POS
+               UNTIL WS-SAN-IDX > WS-SAN-POS
                OR WS-SAN-OPOS > 20
-               MOVE WS-SAN-IN(WS-I:1)
+               MOVE WS-SAN-IN(WS-SAN-IDX:1)
                    TO WS-SAN-CH
                EVALUATE TRUE
                WHEN WS-SAN-CH >= "a"
