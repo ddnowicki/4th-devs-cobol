@@ -914,7 +914,7 @@ jobs:
 
       - name: Compile
         working-directory: S05E01
-        run: cobc -x -free -o app app.cob
+        run: cobc -x -free -I ../copybooks/ -o app app.cob
 
       - name: Run
         working-directory: S05E01
