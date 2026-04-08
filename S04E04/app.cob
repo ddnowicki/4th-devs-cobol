@@ -242,20 +242,26 @@
 
        PROCEDURE DIVISION.
        MAIN-PARA.
+           DISPLAY "[DBG] start" UPON SYSERR
            DISPLAY "=== S04E04 FILESYSTEM ==="
 
+           DISPLAY "[DBG] env" UPON SYSERR
            PERFORM LOAD-ENV-VARS
 
       *>   Init plural table
+           DISPLAY "[DBG] init" UPON SYSERR
            PERFORM INIT-PLURAL-TABLE
 
       *>   Phase 1: Download + extract ZIP
+           DISPLAY "[DBG] p1" UPON SYSERR
            PERFORM PHASE1-DOWNLOAD
 
       *>   Phase 2: Read + escape text files
+           DISPLAY "[DBG] p2" UPON SYSERR
            PERFORM PHASE2-READ-FILES
 
       *>   Phase 3: Parse transactions
+           DISPLAY "[DBG] p3" UPON SYSERR
            PERFORM PHASE3-PARSE-TXN
 
       *>   Phase 4-6: LLM + submit with retry
@@ -264,11 +270,16 @@
                FROM 1 BY 1
                UNTIL WS-ATTEMPT > 3
                OR WS-SUCCESS = "Y"
+               DISPLAY "[DBG] attempt "
+                   WS-ATTEMPT UPON SYSERR
                DISPLAY " "
                DISPLAY "--- Attempt "
                    WS-ATTEMPT "/3 ---"
+               DISPLAY "[DBG] p4" UPON SYSERR
                PERFORM PHASE4-CALL-LLM
+               DISPLAY "[DBG] p5" UPON SYSERR
                PERFORM PHASE5-BUILD-BATCH
+               DISPLAY "[DBG] p6" UPON SYSERR
                PERFORM PHASE6-SUBMIT
                IF WS-SUCCESS NOT = "Y"
                    CALL "C$SLEEP" USING 5
@@ -339,7 +350,7 @@
            DISPLAY "  Downloading..."
            INITIALIZE WS-CMD
            STRING
-               "curl -s -o "
+               "curl -s --max-time 60 -o "
                "natan_notes.zip "
                TRIM(WS-HUB-URL)
                "/dane/natan_notes.zip"
@@ -1032,7 +1043,7 @@
 
            INITIALIZE WS-CMD
            STRING
-               "curl -s "
+               "curl -s --max-time 90 "
                "-o llm_resp.json"
                " -X POST "
                TRIM(WS-OPENAI-URL)
@@ -1840,7 +1851,7 @@
       *>   Submit batch
            INITIALIZE WS-CMD
            STRING
-               "curl -s "
+               "curl -s --max-time 60 "
                "-o batch_resp.json"
                " -X POST "
                TRIM(WS-VERIFY-URL)
@@ -1911,7 +1922,7 @@
 
            INITIALIZE WS-CMD
            STRING
-               "curl -s "
+               "curl -s --max-time 60 "
                "-o done_resp.json"
                " -X POST "
                TRIM(WS-VERIFY-URL)
