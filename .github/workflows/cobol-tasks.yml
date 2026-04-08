@@ -60,10 +60,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -104,10 +102,8 @@ jobs:
           GEOCODING_API_URL: ${{ secrets.GEOCODING_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -234,10 +230,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -276,10 +270,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -315,10 +307,8 @@ jobs:
           HUB_API_URL: ${{ secrets.HUB_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -357,10 +347,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -399,10 +387,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -441,10 +427,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -483,10 +467,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -525,10 +507,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -567,10 +547,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -705,10 +683,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -747,10 +723,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -789,10 +763,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -831,10 +803,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -873,10 +843,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -915,10 +883,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -957,10 +923,8 @@ jobs:
           OPENAI_API_URL: ${{ secrets.OPENAI_API_URL }}
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
@@ -1001,10 +965,8 @@ jobs:
           COB_FILE_FORMAT: 1
         run: |
           set +e
-          OUTPUT=$(./app 2>&1)
-          MASKED=$(echo "$OUTPUT" | sed 's/{FLG:[^}]*}/{FLG:XXX}/g')
-          echo "$MASKED"
-          if echo "$OUTPUT" | grep -q 'FLG:'; then
+          stdbuf -oL ./app 2>&1 | sed -u 's/{FLG:[^}]*}/{FLG:XXX}/g' | tee /tmp/output.log
+          if grep -q 'FLG:' /tmp/output.log; then
             echo ""
             echo "Task completed - flag found"
             exit 0
