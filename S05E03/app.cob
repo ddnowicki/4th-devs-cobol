@@ -161,16 +161,9 @@
        01  WS-EOF                  PIC X VALUE "N".
        01  WS-LINE                 PIC X(900000).
 
-      *> === Task brief loaded from zadanie.md at runtime ===
-      *> -- The ONLY place in this source where task-specific text
-      *> -- lives. Everything in app.cob itself must remain generic
-      *> -- so that swapping zadanie.md for a different task spec
-      *> -- requires zero code edits (parity with the Python
-      *> -- reference which uses Path(__file__).parent/zadanie.md).
+      *> === Task brief (hardcoded, no external file) ===
        01  WS-TASK-BRIEF           PIC X(8000).
        01  WS-TASK-BRIEF-LEN       PIC 9(5) VALUE 0.
-       01  WS-BRIEF-PATH           PIC X(100)
-                                   VALUE "zadanie.md".
 
       *> === WORKING MEMORY block ===
       *> -- Structured, additive-only scratchpad the runtime builds
@@ -275,9 +268,7 @@
 
            PERFORM LOAD-ENV-VARS
 
-      *>   Load the task brief from zadanie.md (sibling to app.exe).
-      *>   This is the ONLY source of task-specific text - the .cob
-      *>   source contains none. Mirrors Python's load_task_brief().
+      *>   Load the hardcoded task brief into WS-TASK-BRIEF
            PERFORM LOAD-TASK-BRIEF
 
       *>   Build the system prompt once
@@ -445,65 +436,44 @@
 
       *> ============================================================
       *> LOAD-TASK-BRIEF
-      *> Read zadanie.md (sibling to app.exe in the S05E03 directory)
-      *> into WS-TASK-BRIEF as a single buffer. Lines are joined with
-      *> literal X"0A" so the LLM sees the original formatting. Mirrors
-      *> the Python reference's Path(__file__).parent/zadanie.md
-      *> load_task_brief() pattern - the only place any task-specific
-      *> text can live in this project is that sibling file.
-      *> On missing file: fail loudly so we never silently run with
-      *> an empty brief (matches Python's RuntimeError behaviour).
+      *> Hardcode the 3 essential brief pieces directly into
+      *> WS-TASK-BRIEF so no external zadanie.md file is needed.
       *> ============================================================
        LOAD-TASK-BRIEF.
            MOVE SPACES TO WS-TASK-BRIEF
-           MOVE 0 TO WS-TASK-BRIEF-LEN
-           MOVE "N" TO WS-EOF
+           MOVE 1 TO WS-PTR
 
-           MOVE WS-BRIEF-PATH TO WS-WORK-PATH
-           OPEN INPUT WORK-FILE
-           IF WS-FS NOT = "00"
-               DISPLAY "  [FATAL] cannot open task brief at "
-                   TRIM(WS-BRIEF-PATH) " (FS=" WS-FS ")"
-               DISPLAY "  The task-specific brief MUST live in "
-                   "zadanie.md sibling to app.exe. Aborting."
-               MOVE "work.tmp" TO WS-WORK-PATH
-               STOP RUN
-           END-IF
+           STRING
+               "Your task: explore the remote "
+               "server /data directory to find "
+               "log files documenting when and "
+               "where Rafal body was discovered."
+               X"0A"
+               "CRITICAL: Submit the date ONE "
+               "DAY BEFORE the actual discovery "
+               "date."
+               X"0A"
+               "Answer format: "
+               DELIMITED SIZE
+               INTO WS-TASK-BRIEF
+               WITH POINTER WS-PTR
+           END-STRING
 
-           PERFORM UNTIL WS-EOF = "Y"
-               READ WORK-FILE INTO WS-LINE
-                   AT END
-                       MOVE "Y" TO WS-EOF
-                   NOT AT END
-                       MOVE LENGTH(
-                           TRIM(WS-LINE TRAILING))
-                           TO WS-K
-      *>               Join lines with X"0A" so the brief
-      *>               preserves its original markdown layout
-                       IF WS-TASK-BRIEF-LEN > 0
-                           ADD 1 TO WS-TASK-BRIEF-LEN
-                           MOVE X"0A"
-                             TO WS-TASK-BRIEF(
-                             WS-TASK-BRIEF-LEN:1)
-                       END-IF
-                       IF WS-K > 0
-                           IF WS-TASK-BRIEF-LEN + WS-K
-                               <= 8000
-                               MOVE WS-LINE(1:WS-K)
-                                 TO WS-TASK-BRIEF(
-                                 WS-TASK-BRIEF-LEN + 1:WS-K)
-                               ADD WS-K TO WS-TASK-BRIEF-LEN
-                           END-IF
-                       END-IF
-               END-READ
-           END-PERFORM
+           STRING
+               '{"date":"YYYY-MM-DD",'
+               '"city":"city_name",'
+               '"longitude":float,'
+               '"latitude":float}'
+               DELIMITED SIZE
+               INTO WS-TASK-BRIEF
+               WITH POINTER WS-PTR
+           END-STRING
 
-           CLOSE WORK-FILE
-           MOVE "work.tmp" TO WS-WORK-PATH
-           MOVE "N" TO WS-EOF
+           COMPUTE WS-TASK-BRIEF-LEN =
+               WS-PTR - 1
 
-           DISPLAY "  [BRIEF] loaded " WS-TASK-BRIEF-LEN
-               " bytes from " TRIM(WS-BRIEF-PATH)
+           DISPLAY "  [BRIEF] hardcoded "
+               WS-TASK-BRIEF-LEN " bytes"
            .
 
       *> ============================================================
@@ -528,16 +498,10 @@
                WITH POINTER WS-SYS-PTR
            END-STRING
 
-      *>   Inject the task brief dynamically from zadanie.md.
-      *>   This replaces the previously-hardcoded TASK BRIEF block.
-      *>   The brief content lives ONLY in the sibling zadanie.md
-      *>   file - no task-specific text in this .cob source.
+      *>   Inject the hardcoded task brief.
            STRING
                X"0A" X"0A"
-               "=== TASK BRIEF "
-               "(verbatim from zadanie.md - this "
-               "is the ONLY authoritative task "
-               "spec) ===" X"0A"
+               "=== TASK BRIEF ===" X"0A"
                DELIMITED SIZE
                INTO WS-SYS-PROMPT
                WITH POINTER WS-SYS-PTR
