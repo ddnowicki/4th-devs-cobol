@@ -9,6 +9,7 @@
 !.env.example
 !**/app.cob
 !**/*.cpy
+!README.md
 !.github/
 !.github/**
 
