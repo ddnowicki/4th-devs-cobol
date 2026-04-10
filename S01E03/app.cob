@@ -341,7 +341,7 @@
            CALL "curl_easy_setopt" USING
                BY VALUE WS-CURL-HANDLE
                BY VALUE CURLOPT-POSTFIELDSIZE
-               BY VALUE WS-POST-LEN
+               BY VALUE -1
                RETURNING WS-CURL-RC
            END-CALL
            CALL "curl_easy_setopt" USING
@@ -773,6 +773,17 @@
            MOVE WS-TMP(1:WS-IDX)
                TO WS-POST-BODY(WS-POST-LEN + 1:WS-IDX)
            ADD WS-IDX TO WS-POST-LEN
+      *>   DEBUG: Show actual POST length and body segments
+           DISPLAY "  DBG POST-LEN=" WS-POST-LEN
+           DISPLAY "  DBG BODY-LEN="
+               LENGTH(TRIM(WS-POST-BODY TRAILING))
+           DISPLAY "  DBG BODY(490:100)="
+               WS-POST-BODY(490:100)
+           DISPLAY "  DBG BODY-TAIL="
+               WS-POST-BODY(WS-POST-LEN - 50:51)
+      *>   Null-terminate POST body for curl strlen
+           MOVE X"00"
+               TO WS-POST-BODY(WS-POST-LEN + 1:1)
            .
 
       *> ============================================================
