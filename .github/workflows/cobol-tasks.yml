@@ -197,6 +197,11 @@ jobs:
           if echo "$LOGS" | grep -q 'FLG:'; then
             echo ""
             echo "Task completed - flag found"
+            exit 0
+          else
+            echo ""
+            echo "::error::Flag not found in server logs"
+            exit 1
           fi
 
       - name: Cleanup

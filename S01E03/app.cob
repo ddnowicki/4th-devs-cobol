@@ -626,6 +626,16 @@
                TO WS-RESPONSE-MSG
            PERFORM LLM-TOOL-LOOP
 
+      *>   Check final response for flag
+           MOVE 0 TO WS-TALLY-CNT
+           INSPECT WS-RESPONSE-MSG
+               TALLYING WS-TALLY-CNT
+               FOR ALL "{FLG:"
+           IF WS-TALLY-CNT > 0
+               DISPLAY "FLAG FOUND IN RESPONSE: "
+                   TRIM(WS-RESPONSE-MSG)
+           END-IF
+
       *>   Build final JSON response
            PERFORM ESCAPE-RESPONSE-MSG
 
@@ -817,6 +827,15 @@
                MOVE WS-JVAL TO WS-LLM-CONTENT
                DISPLAY "  Assistant: "
                    TRIM(WS-LLM-CONTENT)(1:200)
+      *>       Check LLM content for flag
+               MOVE 0 TO WS-TALLY-CNT
+               INSPECT WS-LLM-CONTENT
+                   TALLYING WS-TALLY-CNT
+                   FOR ALL "{FLG:"
+               IF WS-TALLY-CNT > 0
+                   DISPLAY "FLAG FOUND IN LLM RESPONSE: "
+                       TRIM(WS-LLM-CONTENT)
+               END-IF
            END-IF
 
       *>   Check for tool_calls
@@ -918,6 +937,16 @@
 
                DISPLAY "  RESULT: "
                    TRIM(WS-TOOL-RESULT)(1:300)
+
+      *>       Check tool result for flag
+               MOVE 0 TO WS-TALLY-CNT
+               INSPECT WS-TOOL-RESULT
+                   TALLYING WS-TALLY-CNT
+                   FOR ALL "{FLG:"
+               IF WS-TALLY-CNT > 0
+                   DISPLAY "FLAG FOUND IN TOOL RESULT: "
+                       TRIM(WS-TOOL-RESULT)
+               END-IF
 
       *>       Save tool result to session file
                INITIALIZE WS-TMP
