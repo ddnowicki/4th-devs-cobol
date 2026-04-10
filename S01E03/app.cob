@@ -783,10 +783,15 @@
            MOVE WS-OPENAI-HDRS TO WS-CURL-HDRS-PTR
 
            DISPLAY "  Calling OpenAI API..."
+           DISPLAY "  URL: " TRIM(WS-CURL-URL)(1:100)
+           DISPLAY "  REQ: "
+               WS-POST-BODY(1:500)
            PERFORM CURL-HTTPS-POST
 
       *>   Read response into WS-JBUF for parsing
            PERFORM READ-JSON-FILE
+           DISPLAY "  RAW RESP (" WS-JLEN " bytes): "
+               WS-JBUF(1:500)
            .
 
       *> ============================================================
@@ -808,7 +813,8 @@
            MOVE 1 TO WS-JPOS
            PERFORM FIND-JSON-VAL
            IF TRIM(WS-JVAL) NOT = SPACES
-               DISPLAY "  API ERROR: " TRIM(WS-JVAL)(1:200)
+               DISPLAY "  API ERROR: "
+                   WS-JBUF(1:500)
                EXIT PARAGRAPH
            END-IF
 
