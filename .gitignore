@@ -8,6 +8,7 @@
 !.gitignore
 !.env.example
 !**/app.cob
+!**/*.cpy
 !.github/
 !.github/**
 
@@ -16,6 +17,23 @@
 *.exe
 *.csv
 *.json
+*.tmp
+*.log
+*.time
+
+# Belt-and-suspenders: explicit per-file patterns for S05E03 runtime
+# artifacts that contain HUB_API_KEY or other sensitive payloads. The
+# blanket "*" above already covers these, but listing them explicitly
+# protects against future allow-list rules (e.g. "!*.log") that would
+# otherwise expose cached hub request/response bodies.
+S05E03/hub_req.tmp
+S05E03/hub_resp.json
+S05E03/llm_req.json
+S05E03/llm_resp.json
+S05E03/work.tmp
+S05E03/run*.log
+S05E03/run*.time
+S05E03/app.exe
 
 # But allow specific data files needed by tasks
 !S01E01/suspects.json

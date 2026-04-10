@@ -44,7 +44,6 @@
        78  CURLOPT-POSTFIELDS       VALUE 10015.
        78  CURLOPT-HTTPHEADER       VALUE 10023.
        78  CURLOPT-TIMEOUT          VALUE 13.
-       78  CURLOPT-POSTFIELDSIZE    VALUE 60.
        78  CURL-GLOBAL-DEFAULT      VALUE 3.
 
       *> === Shared WS (via copybook) ===
@@ -102,7 +101,7 @@
            05  FILLER               PIC X(1) VALUE "w".
            05  FILLER               PIC X(1) VALUE X"00".
        01  WS-POST-BODY             PIC X(48000).
-       01  WS-POST-LEN              PIC S9(9) COMP-5.
+       01  WS-POST-LEN              PIC S9(18) COMP-5.
 
       *> === POSIX mkdir ===
        01  WS-MKDIR-PATH.
@@ -214,11 +213,14 @@
                INTO WS-PKG-API-URL
            END-STRING
 
-      *>   Create session directory (POSIX mkdir)
-           CALL "mkdir" USING
-               BY REFERENCE WS-MKDIR-PATH
-               BY VALUE WS-MKDIR-MODE
-               RETURNING WS-MKDIR-RC
+      *>   Clean stale session file from prior deployments
+           CALL "SYSTEM" USING
+               "rm -rf /tmp/sessions/ 2>/dev/null"
+           END-CALL
+
+      *>   Create session directory
+           CALL "SYSTEM" USING
+               "mkdir -p /tmp/sessions"
            END-CALL
 
       *>   Initialize libcurl
@@ -338,12 +340,6 @@
            END-CALL
 
       *>   Set POST body
-           CALL "curl_easy_setopt" USING
-               BY VALUE WS-CURL-HANDLE
-               BY VALUE CURLOPT-POSTFIELDSIZE
-               BY VALUE WS-POST-LEN
-               RETURNING WS-CURL-RC
-           END-CALL
            CALL "curl_easy_setopt" USING
                BY VALUE WS-CURL-HANDLE
                BY VALUE CURLOPT-POSTFIELDS
@@ -626,6 +622,16 @@
                TO WS-RESPONSE-MSG
            PERFORM LLM-TOOL-LOOP
 
+      *>   Check final response for flag
+           MOVE 0 TO WS-TALLY-CNT
+           INSPECT WS-RESPONSE-MSG
+               TALLYING WS-TALLY-CNT
+               FOR ALL "{FLG:"
+           IF WS-TALLY-CNT > 0
+               DISPLAY "FLAG FOUND IN RESPONSE: "
+                   TRIM(WS-RESPONSE-MSG)
+           END-IF
+
       *>   Build final JSON response
            PERFORM ESCAPE-RESPONSE-MSG
 
@@ -763,6 +769,17 @@
            MOVE WS-TMP(1:WS-IDX)
                TO WS-POST-BODY(WS-POST-LEN + 1:WS-IDX)
            ADD WS-IDX TO WS-POST-LEN
+      *>   DEBUG: Show actual POST length and body segments
+           DISPLAY "  DBG POST-LEN=" WS-POST-LEN
+           DISPLAY "  DBG BODY-LEN="
+               LENGTH(TRIM(WS-POST-BODY TRAILING))
+           DISPLAY "  DBG BODY(490:100)="
+               WS-POST-BODY(490:100)
+           DISPLAY "  DBG BODY-TAIL="
+               WS-POST-BODY(WS-POST-LEN - 50:51)
+      *>   Null-terminate POST body for curl strlen
+           MOVE X"00"
+               TO WS-POST-BODY(WS-POST-LEN + 1:1)
            .
 
       *> ============================================================
@@ -773,10 +790,15 @@
            MOVE WS-OPENAI-HDRS TO WS-CURL-HDRS-PTR
 
            DISPLAY "  Calling OpenAI API..."
+           DISPLAY "  URL: " TRIM(WS-CURL-URL)(1:100)
+           DISPLAY "  REQ: "
+               WS-POST-BODY(1:500)
            PERFORM CURL-HTTPS-POST
 
       *>   Read response into WS-JBUF for parsing
            PERFORM READ-JSON-FILE
+           DISPLAY "  RAW RESP (" WS-JLEN " bytes): "
+               WS-JBUF(1:500)
            .
 
       *> ============================================================
@@ -798,7 +820,8 @@
            MOVE 1 TO WS-JPOS
            PERFORM FIND-JSON-VAL
            IF TRIM(WS-JVAL) NOT = SPACES
-               DISPLAY "  API ERROR: " TRIM(WS-JVAL)(1:200)
+               DISPLAY "  API ERROR: "
+                   WS-JBUF(1:500)
                EXIT PARAGRAPH
            END-IF
 
@@ -817,6 +840,15 @@
                MOVE WS-JVAL TO WS-LLM-CONTENT
                DISPLAY "  Assistant: "
                    TRIM(WS-LLM-CONTENT)(1:200)
+      *>       Check LLM content for flag
+               MOVE 0 TO WS-TALLY-CNT
+               INSPECT WS-LLM-CONTENT
+                   TALLYING WS-TALLY-CNT
+                   FOR ALL "{FLG:"
+               IF WS-TALLY-CNT > 0
+                   DISPLAY "FLAG FOUND IN LLM RESPONSE: "
+                       TRIM(WS-LLM-CONTENT)
+               END-IF
            END-IF
 
       *>   Check for tool_calls
@@ -918,6 +950,16 @@
 
                DISPLAY "  RESULT: "
                    TRIM(WS-TOOL-RESULT)(1:300)
+
+      *>       Check tool result for flag
+               MOVE 0 TO WS-TALLY-CNT
+               INSPECT WS-TOOL-RESULT
+                   TALLYING WS-TALLY-CNT
+                   FOR ALL "{FLG:"
+               IF WS-TALLY-CNT > 0
+                   DISPLAY "FLAG FOUND IN TOOL RESULT: "
+                       TRIM(WS-TOOL-RESULT)
+               END-IF
 
       *>       Save tool result to session file
                INITIALIZE WS-TMP
@@ -1071,6 +1113,8 @@
                INTO WS-POST-BODY
            END-STRING
            MOVE LENGTH(TRIM(WS-POST-BODY)) TO WS-POST-LEN
+           MOVE X"00"
+               TO WS-POST-BODY(WS-POST-LEN + 1:1)
 
       *>   Set URL and headers
            MOVE WS-PKG-API-URL TO WS-CURL-URL
@@ -1105,6 +1149,8 @@
                INTO WS-POST-BODY
            END-STRING
            MOVE LENGTH(TRIM(WS-POST-BODY)) TO WS-POST-LEN
+           MOVE X"00"
+               TO WS-POST-BODY(WS-POST-LEN + 1:1)
 
       *>   Set URL and headers
            MOVE WS-PKG-API-URL TO WS-CURL-URL
