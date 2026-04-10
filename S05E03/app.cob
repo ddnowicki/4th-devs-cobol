@@ -517,14 +517,6 @@
                "(ASCII stems). The event is "
                "from 2024, not earlier."
                X"0A"
-               "To extract a full record from "
-               "gps.json: entry_id is the LAST "
-               "field in each record, so use "
-               "grep -B 4 '<entry_id>' "
-               "/data/gps.json | head -5 to "
-               "see latitude, longitude, type, "
-               "location_id, and entry_id."
-               X"0A"
                "Answer format: "
                DELIMITED SIZE
                INTO WS-TASK-BRIEF
@@ -965,6 +957,21 @@
                "intentionally shifted. The "
                "ONLY source of truth for "
                "coordinates is gps.json."
+               DELIMITED SIZE
+               INTO WS-SYS-PROMPT
+               WITH POINTER WS-SYS-PTR
+           END-STRING
+
+           STRING
+               X"0A" X"0A"
+               "=== GPS RECORD EXTRACTION ==="
+               X"0A"
+               "gps.json has one field per line. "
+               "entry_id is the LAST field in "
+               "each record. To see a full "
+               "record with coordinates: "
+               "grep -B 4 '<entry_id>' "
+               "/data/gps.json | head -5"
                DELIMITED SIZE
                INTO WS-SYS-PROMPT
                WITH POINTER WS-SYS-PTR
