@@ -44,7 +44,6 @@
        78  CURLOPT-POSTFIELDS       VALUE 10015.
        78  CURLOPT-HTTPHEADER       VALUE 10023.
        78  CURLOPT-TIMEOUT          VALUE 13.
-       78  CURLOPT-POSTFIELDSIZE    VALUE 60.
        78  CURL-GLOBAL-DEFAULT      VALUE 3.
 
       *> === Shared WS (via copybook) ===
@@ -214,11 +213,14 @@
                INTO WS-PKG-API-URL
            END-STRING
 
-      *>   Create session directory (POSIX mkdir)
-           CALL "mkdir" USING
-               BY REFERENCE WS-MKDIR-PATH
-               BY VALUE WS-MKDIR-MODE
-               RETURNING WS-MKDIR-RC
+      *>   Clean stale session file from prior deployments
+           CALL "SYSTEM" USING
+               "rm -rf /tmp/sessions/ 2>/dev/null"
+           END-CALL
+
+      *>   Create session directory
+           CALL "SYSTEM" USING
+               "mkdir -p /tmp/sessions"
            END-CALL
 
       *>   Initialize libcurl
@@ -338,12 +340,6 @@
            END-CALL
 
       *>   Set POST body
-           CALL "curl_easy_setopt" USING
-               BY VALUE WS-CURL-HANDLE
-               BY VALUE CURLOPT-POSTFIELDSIZE
-               BY VALUE -1
-               RETURNING WS-CURL-RC
-           END-CALL
            CALL "curl_easy_setopt" USING
                BY VALUE WS-CURL-HANDLE
                BY VALUE CURLOPT-POSTFIELDS
@@ -1117,6 +1113,8 @@
                INTO WS-POST-BODY
            END-STRING
            MOVE LENGTH(TRIM(WS-POST-BODY)) TO WS-POST-LEN
+           MOVE X"00"
+               TO WS-POST-BODY(WS-POST-LEN + 1:1)
 
       *>   Set URL and headers
            MOVE WS-PKG-API-URL TO WS-CURL-URL
@@ -1151,6 +1149,8 @@
                INTO WS-POST-BODY
            END-STRING
            MOVE LENGTH(TRIM(WS-POST-BODY)) TO WS-POST-LEN
+           MOVE X"00"
+               TO WS-POST-BODY(WS-POST-LEN + 1:1)
 
       *>   Set URL and headers
            MOVE WS-PKG-API-URL TO WS-CURL-URL
