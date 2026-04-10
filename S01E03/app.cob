@@ -342,6 +342,12 @@
       *>   Set POST body
            CALL "curl_easy_setopt" USING
                BY VALUE WS-CURL-HANDLE
+               BY VALUE CURLOPT-POSTFIELDSIZE
+               BY VALUE -1
+               RETURNING WS-CURL-RC
+           END-CALL
+           CALL "curl_easy_setopt" USING
+               BY VALUE WS-CURL-HANDLE
                BY VALUE CURLOPT-POSTFIELDS
                BY REFERENCE WS-POST-BODY
                RETURNING WS-CURL-RC
