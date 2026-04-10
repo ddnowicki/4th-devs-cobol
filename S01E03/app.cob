@@ -102,7 +102,7 @@
            05  FILLER               PIC X(1) VALUE "w".
            05  FILLER               PIC X(1) VALUE X"00".
        01  WS-POST-BODY             PIC X(48000).
-       01  WS-POST-LEN              PIC S9(9) COMP-5.
+       01  WS-POST-LEN              PIC S9(18) COMP-5.
 
       *> === POSIX mkdir ===
        01  WS-MKDIR-PATH.
