@@ -27,7 +27,7 @@ This repository is the answer to that challenge.
 
 [AI_devs 4](https://www.aidevs.pl/) is a 5-week intensive program focused on building production-ready AI solutions. Over 10,000 graduates. Topics span LLM programming, AI agents, function calling, multimodal AI, RAG, context engineering, and prompt optimization.
 
-Created by **Adam Gospodarczyk** ([@overment](https://github.com/overment)), **Jakub Mrugalski** ([@unknow](https://github.com/unknow)), and **Mateusz Chrobok** ([@mateuszchrobok](https://github.com/mateuszchrobok)).
+Created by **Adam Gospodarczyk**, **Jakub Mrugalski**, and **Mateusz Chrobok**.
 
 ## Technical Highlights
 
